@@ -1,4 +1,0 @@
-touch data/processed/.gitkeep
-touch notebooks/.gitkeep
-touch frontend/.gitkeep
-touch ml_models/.gitkeep
