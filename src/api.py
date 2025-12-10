@@ -5,6 +5,10 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from predict import ProcrastinationPredictor
 import traceback
+from recommender import AdaptiveRecommender
+from progress import ProgressTracker
+
+
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend access
@@ -16,6 +20,81 @@ try:
 except Exception as e:
     print(f"❌ Error loading model: {e}")
     predictor = None
+
+# Initialize (add after predictor)
+try:
+    recommender = AdaptiveRecommender()
+    progress_tracker = ProgressTracker()
+    print("✅ Recommender and tracker loaded")
+except Exception as e:
+    print(f"❌ Error: {e}")
+    recommender = None
+    progress_tracker = None
+
+# Add these new routes
+
+@app.route('/recommendations/<int:student_id>', methods=['GET'])
+def get_recommendations(student_id):
+    """Get personalized recommendations"""
+    if not recommender:
+        return jsonify({'error': 'Recommender not loaded'}), 500
+    
+    try:
+        limit = request.args.get('limit', 5, type=int)
+        result = recommender.recommend(student_id, limit=limit)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/progress/start', methods=['POST'])
+def start_content():
+    """Mark content as started"""
+    if not progress_tracker:
+        return jsonify({'error': 'Tracker not loaded'}), 500
+    
+    try:
+        data = request.get_json()
+        student_id = data['student_id']
+        content_id = data['content_id']
+        
+        result = progress_tracker.start_content(student_id, content_id)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/progress/complete', methods=['POST'])
+def complete_content():
+    """Mark content as completed"""
+    if not progress_tracker:
+        return jsonify({'error': 'Tracker not loaded'}), 500
+    
+    try:
+        data = request.get_json()
+        student_id = data['student_id']
+        content_id = data['content_id']
+        time_spent = data.get('time_spent', 0)
+        
+        result = progress_tracker.complete_content(student_id, content_id, time_spent)
+        
+        # Get fresh recommendations after completion
+        new_recs = recommender.recommend(student_id, limit=5)
+        result['new_recommendations'] = new_recs
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/progress/<int:student_id>', methods=['GET'])
+def get_progress(student_id):
+    """Get student progress stats"""
+    if not progress_tracker:
+        return jsonify({'error': 'Tracker not loaded'}), 500
+    
+    try:
+        stats = progress_tracker.get_stats(student_id)
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500    
 
 @app.route('/', methods=['GET'])
 def home():

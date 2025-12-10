@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, Float, String, Boolean
+from sqlalchemy import create_engine, Column, Integer, Float, String, Boolean, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -39,6 +39,30 @@ class StudentBehavior(Base):
     num_login_days = Column(Integer)
     total_clicks = Column(Integer)
     avg_score = Column(Float)
+
+class LearningContent(Base):
+    __tablename__ = 'learning_content'
+    
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    description = Column(String(500))
+    difficulty = Column(String(20))     # easy, medium, hard
+    estimated_minutes = Column(Integer)
+    topic = Column(String(100))
+    module = Column(String(100))
+    prerequisites = Column(String(200)) # Comma-separated IDs
+    url = Column(String(300))
+
+class StudentProgress(Base):
+    __tablename__ = 'student_progress'
+    
+    id = Column(Integer, primary_key=True)
+    id_student = Column(Integer, nullable=False)
+    content_id = Column(Integer, nullable=False)
+    status = Column(String(20))         # not_started, in_progress, completed
+    time_spent = Column(Integer)        # Minutes
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
 
 def init_db(db_name='procrastination.db'):
     local_engine = create_engine(f'sqlite:///{db_name}')
