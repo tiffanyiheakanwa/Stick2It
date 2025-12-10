@@ -4,6 +4,12 @@ from sqlalchemy.orm import sessionmaker
 
 Base = declarative_base()
 
+engine = create_engine("sqlite:///procrastination.db", connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def get_session():
+    return SessionLocal()
+
 class Student(Base):
     __tablename__ = 'students'
     
@@ -35,10 +41,11 @@ class StudentBehavior(Base):
     avg_score = Column(Float)
 
 def init_db(db_name='procrastination.db'):
-    engine = create_engine(f'sqlite:///{db_name}')
-    Base.metadata.create_all(engine)
+    local_engine = create_engine(f'sqlite:///{db_name}')
+    Base.metadata.create_all(local_engine)
     print(f"✅ Database created: {db_name}")
-    return engine
+    return local_engine
 
 if __name__ == "__main__":
-    init_db()
+    Base.metadata.create_all(engine)
+    print("Database initialized.")
