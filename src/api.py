@@ -7,6 +7,10 @@ from predict import ProcrastinationPredictor
 import traceback
 from recommender import AdaptiveRecommender
 from progress import ProgressTracker
+from commitment_system import CommitmentSystem
+from datetime import datetime
+
+
 
 
 
@@ -30,6 +34,14 @@ except Exception as e:
     print(f"❌ Error: {e}")
     recommender = None
     progress_tracker = None
+
+# Initialize (after other initializations)
+try:
+    commitment_system = CommitmentSystem()
+    print("✅ Commitment system loaded")
+except Exception as e:
+    print(f"❌ Error: {e}")
+    commitment_system = None
 
 # Add these new routes
 
@@ -233,6 +245,76 @@ def batch_predict():
             'success': False,
             'error': str(e)
         }), 500
+    
+# Add these new endpoints
+
+@app.route('/commitment/create', methods=['POST'])
+def create_commitment():
+    """Create a soft pledge"""
+    if not commitment_system:
+        return jsonify({'error': 'System not loaded'}), 500
+    
+    try:
+        data = request.get_json()
+        student_id = data['student_id']
+        content_id = data['content_id']
+        
+        # Parse datetime
+        commit_time_str = data['committed_datetime']  # "2024-12-12T14:00:00"
+        commit_time = datetime.fromisoformat(commit_time_str)
+        
+        result = commitment_system.create_commitment(
+            student_id=student_id,
+            content_id=content_id,
+            committed_datetime=commit_time,
+            commitment_type=data.get('type', 'start_time')
+        )
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/commitment/check/<int:commitment_id>', methods=['POST'])
+def check_commitment(commitment_id):
+    """Check if commitment was kept"""
+    if not commitment_system:
+        return jsonify({'error': 'System not loaded'}), 500
+    
+    try:
+        result = commitment_system.check_commitment(commitment_id)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/stats/<int:student_id>', methods=['GET'])
+def get_student_stats(student_id):
+    """Get points, streaks, and success rate"""
+    if not commitment_system:
+        return jsonify({'error': 'System not loaded'}), 500
+    
+    try:
+        stats = commitment_system.get_student_stats(student_id)
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/partner/add', methods=['POST'])
+def add_partner():
+    """Add accountability partner"""
+    if not commitment_system:
+        return jsonify({'error': 'System not loaded'}), 500
+    
+    try:
+        data = request.get_json()
+        result = commitment_system.add_accountability_partner(
+            student_id=data['student_id'],
+            partner_name=data['partner_name'],
+            partner_email=data.get('partner_email'),
+            partner_phone=data.get('partner_phone')
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 if __name__ == '__main__':
     print("\n🚀 Starting Procrastination Prediction API...")
