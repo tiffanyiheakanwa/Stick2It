@@ -1,6 +1,5 @@
 """
 Smart Nudging System - Just-in-Time Adaptive Interventions
-Based on: Nahum-Shani et al. (2018), Plak et al. (2023), Brandt et al. (2024)
 """
 from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import sessionmaker
@@ -8,12 +7,16 @@ from database_setup_content import (StudentProgress, Commitment, StudentPoints,
                             LearningContent, StudentBehavior, AccountabilityPartner)
 from datetime import datetime, timedelta
 import random
+from logger import logger
+from utils import safe_execute
 
 class SmartNudgeSystem:
     def __init__(self):
         engine = create_engine('sqlite:///procrastination.db')
         Session = sessionmaker(bind=engine)
         self.session = Session()
+        self.sent_cache = {}
+
         
         # Nudge templates based on research
         self.nudge_templates = {
@@ -59,11 +62,20 @@ class SmartNudgeSystem:
             ]
         }
     
+    def _can_send(self, student_id, nudge_type):
+        key = (student_id, nudge_type)
+        last = self.sent_cache.get(key)
+
+        if not last:
+            return True
+
+        return datetime.utcnow() - last > timedelta(hours=24)
+
+    def _mark_sent(self, student_id, nudge_type):
+        self.sent_cache[(student_id, nudge_type)] = datetime.utcnow()
+
     def check_and_send_nudges(self, student_id):
-        """
-        Main function: Check student state and send appropriate nudges
-        Returns list of nudges that should be sent
-        """
+        logger.info(f"Checking nudges for student {student_id}")
         nudges = []
         
         # Get student data
@@ -122,6 +134,7 @@ class SmartNudgeSystem:
     
     def _check_deadlines(self, student_id):
         """Check for approaching deadlines"""
+        logger.info(f"Checking deadlines for student {student_id}")
         nudges = []
         
         # Get active commitments
@@ -267,11 +280,6 @@ class SmartNudgeSystem:
         ).first()
     
     def get_personalized_nudge(self, student_id, context='dashboard'):
-        """
-        Get single most relevant nudge for current context
-        
-        Contexts: 'dashboard', 'login', 'content_view', 'deadline_near'
-        """
         all_nudges = self.check_and_send_nudges(student_id)
         
         if not all_nudges:

@@ -1,418 +1,291 @@
 """
-Simple Flask API for Procrastination Predictions
+Stick2It – Hardened Flask API (v1)
+Procrastination Prediction & Adaptive Intervention System
 """
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from predict import ProcrastinationPredictor
-import traceback
-from recommender import AdaptiveRecommender
-from progress import ProgressTracker
-from commitment_system import CommitmentSystem
-from datetime import datetime
-from database_setup_content import Student
-
 from flask_jwt_extended import (
     JWTManager, create_access_token,
     jwt_required, get_jwt_identity
 )
+from datetime import datetime, timedelta
+
+# =========================
+# Service Imports
+# =========================
+from predict import ProcrastinationPredictor
+from recommender import AdaptiveRecommender
+from progress import ProgressTracker
+from commitment_system import CommitmentSystem
+from nudge_system import SmartNudgeSystem
+from database_setup_content import Student, get_session
+
+# =========================
+# App Configuration
+# =========================
+API_PREFIX = "/api/v1"
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend access
+CORS(app)
 
 app.config["JWT_SECRET_KEY"] = "SUPER_SECRET_KEY_CHANGE_THIS"
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
+
 jwt = JWTManager(app)
 
-
-
-
-
-
-# Initialize predictor (load model once at startup)
+# =========================
+# Initialize Core Systems (ONCE)
+# =========================
 try:
     predictor = ProcrastinationPredictor()
-    print("✅ Prediction model loaded")
-except Exception as e:
-    print(f"❌ Error loading model: {e}")
-    predictor = None
-
-# Initialize (add after predictor)
-try:
     recommender = AdaptiveRecommender()
     progress_tracker = ProgressTracker()
-    print("✅ Recommender and tracker loaded")
-except Exception as e:
-    print(f"❌ Error: {e}")
-    recommender = None
-    progress_tracker = None
-
-# Initialize (after other initializations)
-try:
     commitment_system = CommitmentSystem()
-    print("✅ Commitment system loaded")
+    nudge_system = SmartNudgeSystem()
+    print("✅ Core systems loaded successfully")
 except Exception as e:
-    print(f"❌ Error: {e}")
-    commitment_system = None
+    raise RuntimeError(f"Startup failure: {e}")
 
-# Add these new routes
+# =========================
+# AUTHORIZATION GUARD
+# =========================
+def authorize_student(resource_student_id: int):
+    current_user_id = get_jwt_identity()
+    if current_user_id != resource_student_id:
+        return jsonify({"error": "Unauthorized access"}), 403
+    return None
 
-@app.route('/auth/register', methods=['POST'])
+# =========================
+# AUTH ROUTES
+# =========================
+
+@app.route(f"{API_PREFIX}/auth/register", methods=["POST"])
 def register():
     session = get_session()
     data = request.get_json()
 
-    name = data['name']
-    email = data['email'].strip().lower()
-    password = data['password']
+    email = data["email"].strip().lower()
+    if session.query(Student).filter_by(email=email).first():
+        return jsonify({"error": "Email already registered"}), 400
 
-    existing = session.query(Student).filter_by(email=email).first()
-    if existing:
-        return jsonify({'error': 'Email already taken'}), 400
-
-    student = Student(
-        name=name,
-        email=email,
-        id_student=data.get('id_student')  # optional
-    )
-    student.set_password(password)
+    student = Student(name=data["name"], email=email)
+    student.set_password(data["password"])
 
     session.add(student)
     session.commit()
 
-    return jsonify({'success': True, 'student_id': student.id})
+    return jsonify({"success": True, "student_id": student.id})
 
-@app.route('/auth/login', methods=['POST'])
+
+@app.route(f"{API_PREFIX}/auth/login", methods=["POST"])
 def login():
     session = get_session()
     data = request.get_json()
 
-    email = data['email']
-    password = data['password']
-
-    student = session.query(Student).filter_by(email=email).first()
-
-    if not student or not student.verify_password(password):
-        return jsonify({'error': 'Invalid email or password'}), 401
+    student = session.query(Student).filter_by(email=data["email"]).first()
+    if not student or not student.verify_password(data["password"]):
+        return jsonify({"error": "Invalid credentials"}), 401
 
     token = create_access_token(identity=student.id)
 
     return jsonify({
-        'success': True,
-        'token': token,
-        'student': {
-            'id': student.id,
-            'name': student.name,
-            'email': student.email,
+        "success": True,
+        "token": token,
+        "student": {
+            "id": student.id,
+            "name": student.name,
+            "email": student.email
         }
     })
 
+@app.route(f"{API_PREFIX}/me", methods=["GET"])
+@jwt_required()
+def me():
+    return jsonify({"student_id": get_jwt_identity()})
 
-@app.route('/recommendations/<int:student_id>', methods=['GET'])
-def get_recommendations(student_id):
-    """Get personalized recommendations"""
-    if not recommender:
-        return jsonify({'error': 'Recommender not loaded'}), 500
-    
-    try:
-        limit = request.args.get('limit', 5, type=int)
-        result = recommender.recommend(student_id, limit=limit)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+# =========================
+# HEALTH CHECK
+# =========================
 
-@app.route('/progress/start', methods=['POST'])
-def start_content():
-    """Mark content as started"""
-    if not progress_tracker:
-        return jsonify({'error': 'Tracker not loaded'}), 500
-    
-    try:
-        data = request.get_json()
-        student_id = data['student_id']
-        content_id = data['content_id']
-        
-        result = progress_tracker.start_content(student_id, content_id)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+@app.route(f"{API_PREFIX}/health", methods=["GET"])
+def health():
+    return jsonify({"status": "online", "version": "1.0"})
 
-@app.route('/progress/complete', methods=['POST'])
-def complete_content():
-    """Mark content as completed"""
-    if not progress_tracker:
-        return jsonify({'error': 'Tracker not loaded'}), 500
-    
-    try:
-        data = request.get_json()
-        student_id = data['student_id']
-        content_id = data['content_id']
-        time_spent = data.get('time_spent', 0)
-        
-        result = progress_tracker.complete_content(student_id, content_id, time_spent)
-        
-        # Get fresh recommendations after completion
-        new_recs = recommender.recommend(student_id, limit=5)
-        result['new_recommendations'] = new_recs
-        
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+# =========================
+# PREDICTION
+# =========================
 
-@app.route('/progress/<int:student_id>', methods=['GET'])
-def get_progress(student_id):
-    """Get student progress stats"""
-    if not progress_tracker:
-        return jsonify({'error': 'Tracker not loaded'}), 500
-    
-    try:
-        stats = progress_tracker.get_stats(student_id)
-        return jsonify(stats)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500    
-
-@app.route('/', methods=['GET'])
-def home():
-    """API health check"""
+@app.route(f"{API_PREFIX}/predict", methods=["POST"])
+@jwt_required()
+def predict_from_features():
+    features = request.get_json()
     return jsonify({
-        'status': 'online',
-        'message': 'Procrastination Prediction API',
-        'version': '1.0',
-        'model_loaded': predictor is not None
+        "success": True,
+        "prediction": predictor.predict_risk(features)
     })
 
-@app.route('/predict', methods=['POST'])
-def predict():
-    """
-    Predict procrastination risk from features
-    
-    Request body (JSON):
-    {
-        "last_minute_ratio": 0.6,
-        "engagement_intensity": 15.5,
-        "deadline_pressure": 2.5,
-        "login_consistency": 1.2,
-        "early_starter": 0,
-        "completion_rate": 0.4,
-        "activity_span": 45.0
-    }
-    """
-    if not predictor:
-        return jsonify({'error': 'Model not loaded'}), 500
-    
-    try:
-        # Get features from request
-        features = request.get_json()
-        
-        # Validate required features
-        required_features = [
-            'last_minute_ratio', 'engagement_intensity', 'deadline_pressure',
-            'login_consistency', 'early_starter', 'completion_rate', 'activity_span'
-        ]
-        
-        for feature in required_features:
-            if feature not in features:
-                return jsonify({'error': f'Missing required feature: {feature}'}), 400
-        
-        # Make prediction
-        result = predictor.predict_risk(features)
-        
-        return jsonify({
-            'success': True,
-            'prediction': result
-        })
-    
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        }), 500
 
-@app.route('/predict/<int:student_id>', methods=['GET'])
-def predict_student(student_id):
-    """
-    Predict risk for a student from database
-    
-    Example: GET /predict/11391
-    """
-    if not predictor:
-        return jsonify({'error': 'Model not loaded'}), 500
-    
-    try:
-        result = predictor.predict_from_database(student_id)
-        
-        return jsonify({
-            'success': True,
-            'student_id': student_id,
-            'prediction': result
-        })
-    
-    except ValueError as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 404
-    
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        }), 500
+@app.route(f"{API_PREFIX}/students/<int:student_id>/predict", methods=["GET"])
+@jwt_required()
+def predict_for_student(student_id):
+    auth = authorize_student(student_id)
+    if auth:
+        return auth
 
-@app.route('/batch-predict', methods=['POST'])
-def batch_predict():
-    """
-    Predict for multiple students at once
-    
-    Request body (JSON):
-    {
-        "student_ids": [11391, 28400, 30268]
-    }
-    """
-    if not predictor:
-        return jsonify({'error': 'Model not loaded'}), 500
-    
-    try:
-        data = request.get_json()
-        student_ids = data.get('student_ids', [])
-        
-        if not student_ids:
-            return jsonify({'error': 'No student_ids provided'}), 400
-        
-        results = []
-        for student_id in student_ids:
-            try:
-                prediction = predictor.predict_from_database(student_id)
-                results.append({
-                    'student_id': student_id,
-                    'success': True,
-                    'prediction': prediction
-                })
-            except Exception as e:
-                results.append({
-                    'student_id': student_id,
-                    'success': False,
-                    'error': str(e)
-                })
-        
-        return jsonify({
-            'success': True,
-            'results': results,
-            'total': len(results)
-        })
-    
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-    
-# Add these new endpoints
+    return jsonify({
+        "success": True,
+        "prediction": predictor.predict_from_database(student_id)
+    })
 
-@app.route('/commitment/create', methods=['POST'])
+# =========================
+# RECOMMENDATIONS
+# =========================
+
+@app.route(f"{API_PREFIX}/students/<int:student_id>/recommendations", methods=["GET"])
+@jwt_required()
+def get_recommendations(student_id):
+    auth = authorize_student(student_id)
+    if auth:
+        return auth
+
+    limit = request.args.get("limit", 5, type=int)
+    return jsonify(recommender.recommend(student_id, limit))
+
+# =========================
+# PROGRESS
+# =========================
+
+@app.route(f"{API_PREFIX}/progress/start", methods=["POST"])
+@jwt_required()
+def start_content():
+    data = request.get_json()
+    current_user_id = get_jwt_identity()
+
+    return jsonify(
+        progress_tracker.start_content(
+            current_user_id,
+            data["content_id"]
+        )
+    )
+
+
+@app.route(f"{API_PREFIX}/progress/complete", methods=["POST"])
+@jwt_required()
+def complete_content():
+    data = request.get_json()
+    current_user_id = get_jwt_identity()
+
+    result = progress_tracker.complete_content(
+        current_user_id,
+        data["content_id"],
+        data.get("time_spent", 0)
+    )
+
+    result["new_recommendations"] = recommender.recommend(current_user_id)
+    return jsonify(result)
+
+
+@app.route(f"{API_PREFIX}/students/<int:student_id>/progress", methods=["GET"])
+@jwt_required()
+def get_progress(student_id):
+    auth = authorize_student(student_id)
+    if auth:
+        return auth
+
+    return jsonify(progress_tracker.get_stats(student_id))
+
+# =========================
+# COMMITMENTS
+# =========================
+
+@app.route(f"{API_PREFIX}/commitments", methods=["POST"])
+@jwt_required()
 def create_commitment():
-    """Create a soft pledge"""
-    if not commitment_system:
-        return jsonify({'error': 'System not loaded'}), 500
-    
-    try:
-        data = request.get_json()
-        student_id = data['student_id']
-        content_id = data['content_id']
-        
-        # Parse datetime
-        commit_time_str = data['committed_datetime']  # "2024-12-12T14:00:00"
-        commit_time = datetime.fromisoformat(commit_time_str)
-        
-        result = commitment_system.create_commitment(
-            student_id=student_id,
-            content_id=content_id,
+    data = request.get_json()
+    current_user_id = get_jwt_identity()
+
+    commit_time = datetime.fromisoformat(data["committed_datetime"])
+
+    return jsonify(
+        commitment_system.create_commitment(
+            student_id=current_user_id,
+            content_id=data["content_id"],
             committed_datetime=commit_time,
-            commitment_type=data.get('type', 'start_time')
+            commitment_type=data.get("type", "start_time")
         )
-        
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+    )
 
-@app.route('/commitment/check/<int:commitment_id>', methods=['POST'])
+
+@app.route(f"{API_PREFIX}/commitments/<int:commitment_id>/check", methods=["POST"])
+@jwt_required()
 def check_commitment(commitment_id):
-    """Check if commitment was kept"""
-    if not commitment_system:
-        return jsonify({'error': 'System not loaded'}), 500
-    
-    try:
-        result = commitment_system.check_commitment(commitment_id)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+    return jsonify(commitment_system.check_commitment(commitment_id))
 
-@app.route('/stats/<int:student_id>', methods=['GET'])
+
+@app.route(f"{API_PREFIX}/students/<int:student_id>/stats", methods=["GET"])
+@jwt_required()
 def get_student_stats(student_id):
-    """Get points, streaks, and success rate"""
-    if not commitment_system:
-        return jsonify({'error': 'System not loaded'}), 500
-    
-    try:
-        stats = commitment_system.get_student_stats(student_id)
-        return jsonify(stats)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    auth = authorize_student(student_id)
+    if auth:
+        return auth
 
-@app.route('/partner/add', methods=['POST'])
+    return jsonify(commitment_system.get_student_stats(student_id))
+
+# =========================
+# ACCOUNTABILITY PARTNER
+# =========================
+
+@app.route(f"{API_PREFIX}/partners", methods=["POST"])
+@jwt_required()
 def add_partner():
-    """Add accountability partner"""
-    if not commitment_system:
-        return jsonify({'error': 'System not loaded'}), 500
-    
-    try:
-        data = request.get_json()
-        result = commitment_system.add_accountability_partner(
-            student_id=data['student_id'],
-            partner_name=data['partner_name'],
-            partner_email=data.get('partner_email'),
-            partner_phone=data.get('partner_phone')
+    data = request.get_json()
+    current_user_id = get_jwt_identity()
+
+    return jsonify(
+        commitment_system.add_accountability_partner(
+            student_id=current_user_id,
+            partner_name=data["partner_name"],
+            partner_email=data.get("partner_email"),
+            partner_phone=data.get("partner_phone")
         )
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+    )
 
+# =========================
+# NUDGES
+# =========================
 
-# Add API endpoint to api.py
-@app.route('/nudges/<int:student_id>', methods=['GET'])
+@app.route(f"{API_PREFIX}/students/<int:student_id>/nudges", methods=["GET"])
+@jwt_required()
 def get_nudges(student_id):
-    """Get personalized nudges for student"""
-    from nudge_system import SmartNudgeSystem
-    
-    try:
-        nudge_system = SmartNudgeSystem()
-        context = request.args.get('context', 'dashboard')
-        
-        if context == 'all':
-            nudges = nudge_system.check_and_send_nudges(student_id)
-        else:
-            nudge = nudge_system.get_personalized_nudge(student_id, context)
-            nudges = [nudge] if nudge else []
-        
-        nudge_system.close()
-        
-        return jsonify({
-            'success': True,
-            'student_id': student_id,
-            'nudges': nudges,
-            'count': len(nudges)
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    auth = authorize_student(student_id)
+    if auth:
+        return auth
 
-if __name__ == '__main__':
-    print("\n🚀 Starting Procrastination Prediction API...")
-    print("📍 API will be available at: http://localhost:5000")
-    print("\nEndpoints:")
-    print("  GET  /                    - Health check")
-    print("  POST /predict             - Predict from features")
-    print("  GET  /predict/<student_id> - Predict from database")
-    print("  POST /batch-predict       - Batch predictions")
-    print("\n" + "="*60 + "\n")
-    
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    context = request.args.get("context", "dashboard")
+
+    if context == "all":
+        nudges = nudge_system.check_and_send_nudges(student_id)
+    else:
+        nudge = nudge_system.get_personalized_nudge(student_id, context)
+        nudges = [nudge] if nudge else []
+
+    return jsonify({
+        "success": True,
+        "nudges": nudges,
+        "count": len(nudges)
+    })
+
+# =========================
+# ENTRY POINT
+# =========================
+
+if __name__ == "__main__":
+    from scheduler import start_scheduler
+
+    start_scheduler()   # ✅ start background jobs first
+
+    print("\n🚀 Stick2It API running")
+    print("📍 Base URL: http://localhost:5000/api/v1")
+
+    app.run(debug=True, host="0.0.0.0", port=5000)

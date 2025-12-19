@@ -222,6 +222,62 @@ class AccountabilityPartner(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 # -------------------------------------------------------------
+# MODEL PREDICTIONS (LIFECYCLE MANAGEMENT)
+# -------------------------------------------------------------
+class ModelPrediction(Base):
+    __tablename__ = "model_predictions"
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    model_version = Column(String(50), nullable=False)
+    prediction = Column(String(50), nullable=False)
+    confidence = Column(Float, nullable=False)
+    features_used = Column(String)  # JSON string or comma-separated
+
+def log_prediction(user_id, prediction, confidence, features, model_version="rf_v1.2"):
+    session = SessionLocal()
+    import json
+
+    entry = ModelPrediction(
+        user_id=user_id,
+        model_version=model_version,
+        prediction=prediction,
+        confidence=confidence,
+        features_used=json.dumps(features)
+    )
+    session.add(entry)
+    session.commit()
+    session.close()
+
+# -------------------------------------------------------------
+# NUDGE FEEDBACK (FOR ADAPTIVE LOOP)
+# -------------------------------------------------------------
+class NudgeFeedback(Base):
+    __tablename__ = "nudge_feedback"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False)
+    nudge_id = Column(Integer, nullable=False)  # Could correspond to TaskEvent or a specific nudge
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    feedback = Column(String(50))  # "helpful", "not helpful", etc.
+    outcome = Column(String(50))   # "completed", "abandoned", etc.
+    comments = Column(String(500))  # Optional text feedback
+
+def log_nudge_feedback(user_id, nudge_id, feedback, outcome, comments=""):
+    session = SessionLocal()
+    entry = NudgeFeedback(
+        user_id=user_id,
+        nudge_id=nudge_id,
+        feedback=feedback,
+        outcome=outcome,
+        comments=comments
+    )
+    session.add(entry)
+    session.commit()
+    session.close()
+
+# -------------------------------------------------------------
 # INIT DB
 # -------------------------------------------------------------
 def init_db(db_name='procrastination.db'):

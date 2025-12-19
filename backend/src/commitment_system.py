@@ -1,280 +1,212 @@
 """
-Hybrid Commitment Device System
-Combines: Soft pledges + Streaks + Points + Accountability partners
+Hybrid Commitment Device System (Integrity-Enforced)
 """
+
 from sqlalchemy import create_engine, and_
 from sqlalchemy.orm import sessionmaker
-from database_setup_content import (Commitment, StudentPoints, AccountabilityPartner,
-                            StudentProgress, LearningContent)
+from database_setup_content import (
+    Commitment, StudentPoints, AccountabilityPartner, LearningContent
+)
 from datetime import datetime, timedelta
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from logger import logger
+from utils import safe_execute
 
 class CommitmentSystem:
     def __init__(self):
-        engine = create_engine('sqlite:///procrastination.db')
+        engine = create_engine("sqlite:///procrastination.db")
         Session = sessionmaker(bind=engine)
         self.session = Session()
-    
-    def create_commitment(self, student_id, content_id, committed_datetime, 
-                         commitment_type='start_time'):
-        """
-        Student makes a soft pledge
-        
-        Parameters:
-        -----------
-        student_id : int
-        content_id : int
-        committed_datetime : datetime - When they commit to start/finish
-        commitment_type : str - 'start_time' or 'completion_deadline'
-        """
-        # Get content details
+
+    def create_commitment(self, student_id, content_id, committed_datetime,
+                          commitment_type="start_time"):
+        logger.info(f"Creating commitment for student {student_id}, content {content_id}")
+
+        if committed_datetime <= datetime.utcnow():
+            return {"success": False, "error": "Commitment time must be in the future"}
+
         content = self.session.query(LearningContent).filter(
             LearningContent.id == content_id
         ).first()
-        
+
         if not content:
-            return {'success': False, 'error': 'Content not found'}
-        
-        # Create pledge text
-        action = "start" if commitment_type == 'start_time' else "complete"
-        pledge_text = f"I will {action} '{content.title}' by {committed_datetime.strftime('%b %d at %I:%M %p')}"
-        
-        # Calculate points at stake (harder tasks = more points)
-        points_map = {'easy': 5, 'medium': 10, 'hard': 15}
+            return {"success": False, "error": "Content not found"}
+
+        points_map = {"easy": 5, "medium": 10, "hard": 15}
         points = points_map.get(content.difficulty, 10)
-        
-        # Create commitment
+
         commitment = Commitment(
             id_student=student_id,
             content_id=content_id,
             commitment_type=commitment_type,
             committed_datetime=committed_datetime,
-            pledge_text=pledge_text,
-            points_at_stake=points
+            pledge_text=f"I will complete '{content.title}' by {committed_datetime}",
+            points_at_stake=points,
+            status="pending"
         )
-        
+
         self.session.add(commitment)
-        
-        # Update student's commitment count
         self._update_student_points(student_id, new_commitment=True)
-        
         self.session.commit()
-        
+        logger.info(f"Commitment created with ID {commitment.id} for student {student_id}")
         return {
-            'success': True,
-            'commitment_id': commitment.id,
-            'pledge': pledge_text,
-            'points_at_stake': points,
-            'committed_time': committed_datetime
+            "success": True,
+            "commitment_id": commitment.id,
+            "points_at_stake": points
         }
-    
+
     def check_commitment(self, commitment_id, actual_action_time=None):
-        """
-        Check if student kept their commitment
-        
-        Parameters:
-        -----------
-        commitment_id : int
-        actual_action_time : datetime - When they actually started/completed
-        """
+        """Check commitment ONLY after deadline"""
+        logger.info(f"Checking commitment {commitment_id}")
         commitment = self.session.query(Commitment).filter(
             Commitment.id == commitment_id
         ).first()
-        
+
         if not commitment:
-            return {'success': False, 'error': 'Commitment not found'}
-        
-        if actual_action_time is None:
-            actual_action_time = datetime.utcnow()
-        
-        # Check if they kept it (within grace period of 1 hour)
-        grace_period = timedelta(hours=1)
-        deadline = commitment.committed_datetime + grace_period
-        
-        if actual_action_time <= deadline:
-            # KEPT the commitment! 🎉
-            commitment.status = 'kept'
-            commitment.completed_at = actual_action_time
-            
-            # Award points
-            points_earned = commitment.points_at_stake
+            return {"success": False, "error": "Commitment not found"}
+
+        if commitment.status != "pending":
+            return {"success": True, "status": commitment.status}
+
+        now = actual_action_time or datetime.utcnow()
+
+        if now < commitment.committed_datetime:
+            return {
+                "success": True,
+                "status": "pending",
+                "message": "Deadline not reached"
+            }
+
+        grace = timedelta(hours=1)
+
+        if now <= commitment.committed_datetime + grace:
+            commitment.status = "kept"
             self._update_student_points(
                 commitment.id_student,
                 kept_commitment=True,
-                points_change=points_earned
+                points_change=commitment.points_at_stake
             )
-            
-            result = {
-                'success': True,
-                'status': 'kept',
-                'message': f'Great job! You earned {points_earned} points! 🎉',
-                'points_earned': points_earned
-            }
+            result = "kept"
         else:
-            # BROKEN commitment 😢
-            commitment.status = 'broken'
-            
-            # Lose points
-            points_lost = commitment.points_at_stake
+            commitment.status = "broken"
             self._update_student_points(
                 commitment.id_student,
                 broken_commitment=True,
-                points_change=-points_lost
+                points_change=-commitment.points_at_stake
             )
-            
-            result = {
-                'success': True,
-                'status': 'broken',
-                'message': f'You missed your commitment and lost {points_lost} points.',
-                'points_lost': points_lost
-            }
-        
+            result = "broken"
+
+        commitment.completed_at = now
         self.session.commit()
-        
-        # Notify accountability partner if exists
-        self._notify_partner(commitment.id_student, commitment, result['status'])
-        
-        return result
-    
+
+        self._notify_partner(commitment.id_student, commitment, result)
+        logger.info(f"Commitment {commitment_id} checked. Status: {result}")
+        return {"success": True, "status": result}
+
     def _update_student_points(self, student_id, new_commitment=False,
                                kept_commitment=False, broken_commitment=False,
                                points_change=0):
-        """Update student's points and streaks"""
-        
-        # Get or create student points record
-        student_points = self.session.query(StudentPoints).filter(
+
+        points = safe_execute(self.session.query(StudentPoints).filter(
             StudentPoints.id_student == student_id
-        ).first()
-        
-        if not student_points:
-            student_points = StudentPoints(id_student=student_id)
-            self.session.add(student_points)
-        
-        # Update based on action
+        ).first())
+
+        if not points:
+            points = StudentPoints(
+                id_student=student_id,
+                total_points=100,
+                current_streak=0,
+                longest_streak=0
+            )
+            self.session.add(points)
+
         if new_commitment:
-          student_points.total_commitments = (student_points.total_commitments or 0) + 1
+            points.total_commitments += 1
 
         if kept_commitment:
-          student_points.kept_commitments = (student_points.kept_commitments or 0) + 1
-          student_points.total_points = (student_points.total_points or 0) + points_change
-          student_points.points_earned = (student_points.points_earned or 0) + points_change
+            points.kept_commitments += 1
+            points.total_points = max(0, points.total_points + points_change)
+            points.points_earned += points_change
 
-            
-            # Update streak
-          today = datetime.utcnow().date()
-          if student_points.last_commitment_date:
-                last_date = student_points.last_commitment_date.date()
-                if (today - last_date).days == 1:
-                    # Consecutive day!
-                    student_points.current_streak += 1
-                elif (today - last_date).days == 0:
-                    # Same day, don't break streak
-                    pass
-                else:
-                    # Streak broken
-                    student_points.current_streak = 1
-          else:
-            student_points.current_streak = 1
-            
-            # Update longest streak
-            if student_points.current_streak > student_points.longest_streak:
-                student_points.longest_streak = student_points.current_streak
-            
-            student_points.last_commitment_date = datetime.utcnow()
-        
+            today = datetime.utcnow().date()
+            if points.last_commitment_date and (
+                today - points.last_commitment_date.date()
+            ).days == 1:
+                points.current_streak += 1
+            else:
+                points.current_streak = 1
+
+            points.longest_streak = max(
+                points.longest_streak, points.current_streak
+            )
+            points.last_commitment_date = datetime.utcnow()
+
         if broken_commitment:
-            student_points.broken_commitments += 1
-            student_points.total_points += points_change  # Negative value
-            student_points.points_lost += abs(points_change)
-            
-            # Break streak
-            student_points.current_streak = 0
-        
+            points.broken_commitments += 1
+            points.total_points = max(0, points.total_points + points_change)
+            points.points_lost += abs(points_change)
+            points.current_streak = 0
+
         self.session.commit()
-    
+
     def get_student_stats(self, student_id):
-        """Get student's commitment stats"""
-        
-        student_points = self.session.query(StudentPoints).filter(
+        points = safe_execute(self.session.query(StudentPoints).filter(
             StudentPoints.id_student == student_id
-        ).first()
-        
-        if not student_points:
-            return {
-                'total_points': 100,
-                'current_streak': 0,
-                'longest_streak': 0,
-                'success_rate': 0,
-                'total_commitments': 0
-            }
-        
+        ).first())
+
+        if not points:
+            return {"total_points": 100, "current_streak": 0}
+
         return {
-            'total_points': student_points.total_points,
-            'points_earned': student_points.points_earned,
-            'points_lost': student_points.points_lost,
-            'current_streak': student_points.current_streak,
-            'longest_streak': student_points.longest_streak,
-            'success_rate': round(
-                (student_points.kept_commitments or 0) / 
-                max(student_points.total_commitments or 1, 1) * 100,
-                1
-            ),
-            'total_commitments': student_points.total_commitments,
-            'kept': student_points.kept_commitments,
-            'broken': student_points.broken_commitments
+            "total_points": points.total_points,
+            "current_streak": points.current_streak,
+            "longest_streak": points.longest_streak,
+            "success_rate": round(
+                (points.kept_commitments or 0) /
+                max(points.total_commitments or 1, 1) * 100, 1
+            )
         }
-    
-    def add_accountability_partner(self, student_id, partner_name, 
-                                  partner_email=None, partner_phone=None):
-        """Add an accountability partner"""
-        
+
+    def add_accountability_partner(self, student_id, partner_name,
+                                   partner_email=None, partner_phone=None):
+
         if not partner_email and not partner_phone:
-            return {'success': False, 'error': 'Need email or phone'}
-        
-        # Check if partner already exists
+            return {"success": False, "error": "Contact required"}
+
         existing = self.session.query(AccountabilityPartner).filter(
             and_(
                 AccountabilityPartner.id_student == student_id,
                 AccountabilityPartner.is_active == True
             )
         ).first()
-        
-        if existing:
-          existing.is_active = False
-          self.session.commit()
 
-        
+        if existing:
+            existing.is_active = False
+
         partner = AccountabilityPartner(
             id_student=student_id,
             partner_name=partner_name,
             partner_email=partner_email,
             partner_phone=partner_phone
         )
-        
+
         self.session.add(partner)
         self.session.commit()
-        
-        # Send verification email
-        if partner_email:
-            self._send_partner_verification(partner)
-        
-        return {
-            'success': True,
-            'partner_id': partner.id,
-            'message': f'Added {partner_name} as accountability partner'
-        }
-    
+
+        return {"success": True, "partner_id": partner.id}
+
+    # def _notify_partner(self, student_id, commitment, status):
+    #     # MVP: console-only
+    #     print(f"📣 Partner notified: commitment {status}")
+
     def _notify_partner(self, student_id, commitment, status):
         """Send notification to accountability partner"""
         
-        partner = self.session.query(AccountabilityPartner).filter(
+        partner = safe_execute(self.session.query(AccountabilityPartner).filter(
             and_(
                 AccountabilityPartner.id_student == student_id,
                 AccountabilityPartner.is_active == True
             )
-        ).first()
+        ).first())  
         
         if not partner or not partner.partner_email:
             return
