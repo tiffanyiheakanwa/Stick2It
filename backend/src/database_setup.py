@@ -9,10 +9,14 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 Base = declarative_base()
 
-engine = create_engine(
-    "sqlite:///procrastination.db",
-    connect_args={"check_same_thread": False}
-)
+# ---------------------------
+# Flexible engine creation
+# ---------------------------
+def get_engine(db_url="sqlite:///procrastination.db"):
+    return create_engine(db_url, connect_args={"check_same_thread": False})
+
+# Default engine and session
+engine = get_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_session():
@@ -33,7 +37,10 @@ class Student(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
     final_result = Column(String(20))
-
+    is_active = Column(Boolean, default=True)
+    model_opt_out = Column(Boolean, default=False)
+    no_nudges = Column(Boolean, default=False)
+    
     # Relationships
     tasks = relationship("Task", back_populates="student")
 
@@ -44,7 +51,7 @@ class Student(Base):
         return check_password_hash(self.password_hash, password)
 
 # -------------------------------------------------------------
-# STUDENT BEHAVIOR (For ML Features)
+# STUDENT BEHAVIOR
 # -------------------------------------------------------------
 class StudentBehavior(Base):
     __tablename__ = 'behaviors'
@@ -67,7 +74,7 @@ class StudentBehavior(Base):
     avg_score = Column(Float)
 
 # -------------------------------------------------------------
-# DEPRECATED BUT KEPT FOR OPTION 2
+# LEARNING CONTENT
 # -------------------------------------------------------------
 class LearningContent(Base):
     __tablename__ = 'learning_content'
@@ -83,7 +90,7 @@ class LearningContent(Base):
     url = Column(String(300))
 
 # -------------------------------------------------------------
-# STUDENT PROGRESS (OPTIONAL, NOT USED IN TASK MODE)
+# STUDENT PROGRESS
 # -------------------------------------------------------------
 class StudentProgress(Base):
     __tablename__ = 'student_progress'
@@ -98,7 +105,7 @@ class StudentProgress(Base):
     completed_at = Column(DateTime)
 
 # -------------------------------------------------------------
-# NEW: TASKS TABLE
+# TASKS TABLE
 # -------------------------------------------------------------
 class Task(Base):
     __tablename__ = 'tasks'
@@ -111,7 +118,7 @@ class Task(Base):
     deadline = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
-    status = Column(String(20), default="pending")  # pending, in_progress, completed, overdue
+    status = Column(String(20), default="pending")
 
     procrastination_risk = Column(Float, default=0.0)
     breakdown_generated = Column(Boolean, default=False)
@@ -123,7 +130,7 @@ class Task(Base):
     commitments = relationship("Commitment", back_populates="task")
 
 # -------------------------------------------------------------
-# NEW: SUBTASKS TABLE
+# SUBTASKS TABLE
 # -------------------------------------------------------------
 class SubTask(Base):
     __tablename__ = 'subtasks'
@@ -138,7 +145,7 @@ class SubTask(Base):
     task = relationship("Task", back_populates="subtasks")
 
 # -------------------------------------------------------------
-# NEW: TASK EVENTS TABLE (NUDGES, DEADLINES, ETC.)
+# TASK EVENTS TABLE
 # -------------------------------------------------------------
 class TaskEvent(Base):
     __tablename__ = "task_events"
@@ -146,21 +153,19 @@ class TaskEvent(Base):
     id = Column(Integer, primary_key=True)
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
 
-    event_type = Column(String(50))  # "nudge_sent", "deadline", etc.
+    event_type = Column(String(50))
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     task = relationship("Task", back_populates="events")
 
 # -------------------------------------------------------------
-# COMMITMENTS (UPDATED TO LINK TO TASK INSTEAD OF CONTENT)
+# COMMITMENTS
 # -------------------------------------------------------------
 class Commitment(Base):
     __tablename__ = 'commitments'
 
     id = Column(Integer, primary_key=True)
     id_student = Column(Integer, nullable=False)
-
-    # This replaces content_id
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True)
 
     commitment_type = Column(String(50))
@@ -169,17 +174,15 @@ class Commitment(Base):
 
     status = Column(String(20), default='pending')
     completed_at = Column(DateTime)
-
     points_at_stake = Column(Integer, default=10)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationship
     task = relationship("Task", back_populates="commitments")
 
 # -------------------------------------------------------------
-# STUDENT POINT SYSTEM
+# STUDENT POINTS
 # -------------------------------------------------------------
 class StudentPoints(Base):
     __tablename__ = 'student_points'
@@ -222,7 +225,7 @@ class AccountabilityPartner(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 # -------------------------------------------------------------
-# MODEL PREDICTIONS (LIFECYCLE MANAGEMENT)
+# MODEL PREDICTIONS
 # -------------------------------------------------------------
 class ModelPrediction(Base):
     __tablename__ = "model_predictions"
@@ -233,10 +236,10 @@ class ModelPrediction(Base):
     model_version = Column(String(50), nullable=False)
     prediction = Column(String(50), nullable=False)
     confidence = Column(Float, nullable=False)
-    features_used = Column(String)  # JSON string or comma-separated
+    features_used = Column(String)
 
 def log_prediction(user_id, prediction, confidence, features, model_version="rf_v1.2"):
-    session = SessionLocal()
+    session = get_session()
     import json
 
     entry = ModelPrediction(
@@ -251,21 +254,21 @@ def log_prediction(user_id, prediction, confidence, features, model_version="rf_
     session.close()
 
 # -------------------------------------------------------------
-# NUDGE FEEDBACK (FOR ADAPTIVE LOOP)
+# NUDGE FEEDBACK
 # -------------------------------------------------------------
 class NudgeFeedback(Base):
     __tablename__ = "nudge_feedback"
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, nullable=False)
-    nudge_id = Column(Integer, nullable=False)  # Could correspond to TaskEvent or a specific nudge
+    nudge_id = Column(Integer, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
-    feedback = Column(String(50))  # "helpful", "not helpful", etc.
-    outcome = Column(String(50))   # "completed", "abandoned", etc.
-    comments = Column(String(500))  # Optional text feedback
+    feedback = Column(String(50))
+    outcome = Column(String(50))
+    comments = Column(String(500))
 
 def log_nudge_feedback(user_id, nudge_id, feedback, outcome, comments=""):
-    session = SessionLocal()
+    session = get_session()
     entry = NudgeFeedback(
         user_id=user_id,
         nudge_id=nudge_id,
@@ -278,10 +281,10 @@ def log_nudge_feedback(user_id, nudge_id, feedback, outcome, comments=""):
     session.close()
 
 # -------------------------------------------------------------
-# INIT DB
+# INIT DB FUNCTION
 # -------------------------------------------------------------
 def init_db(db_name='procrastination.db'):
-    local_engine = create_engine(f'sqlite:///{db_name}')
+    local_engine = get_engine(f"sqlite:///{db_name}")
     Base.metadata.create_all(local_engine)
     print(f"✅ Database created: {db_name}")
     return local_engine

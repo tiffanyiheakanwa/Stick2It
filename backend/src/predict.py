@@ -6,18 +6,21 @@ import joblib
 import pandas as pd
 import numpy as np
 import re
+import os
+
+
 
 class ProcrastinationPredictor:
     """Class to handle procrastination risk predictions"""
 
-    def __init__(self, model_path='models/rf_procrastination_model.pkl',
-                 scaler_path='scaler.pkl',
-                 features_path='models/feature_names.pkl'):
+    def __init__(self, model_path = os.path.join(os.path.dirname(__file__), "models/rf_procrastination_model.pkl"),
+                 scaler_path=os.path.join(os.path.dirname(__file__), "models/scaler.pkl"),
+                 features_path=os.path.join(os.path.dirname(__file__), "models/feature_names.pkl")):
         """Load trained model and preprocessors"""
         self.model = joblib.load(model_path)
         self.scaler = joblib.load(scaler_path)
         self.feature_names = joblib.load(features_path)
-        print("✅ Model loaded successfully")
+        print("Model loaded successfully")
 
     # -----------------------------
     # Existing method: student features
@@ -45,12 +48,28 @@ class ProcrastinationPredictor:
         }
 
     def predict_from_database(self, student_id):
-        from database_setup import get_session, StudentBehavior
+        from database_setup import get_session, StudentBehavior, Student
 
         session = get_session()
+
+        student = session.query(Student).filter_by(id=student_id).first()
+        if not student:
+            session.close()
+            raise ValueError(f"Student {student_id} not found")
+
+        if student.model_opt_out:
+            session.close()
+            return {
+                "prediction": "disabled",
+                "reason": "User opted out of predictive modeling",
+                "risk_category": None,
+                "risk_score": None
+            }
+    
         behavior = session.query(StudentBehavior).filter(
             StudentBehavior.id_student == student_id
         ).first()
+        
         if not behavior:
             session.close()
             raise ValueError(f"Student {student_id} not found in database")

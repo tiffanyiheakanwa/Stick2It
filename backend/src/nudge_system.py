@@ -3,7 +3,7 @@ Smart Nudging System - Just-in-Time Adaptive Interventions
 """
 from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import sessionmaker
-from database_setup_content import (StudentProgress, Commitment, StudentPoints, 
+from database_setup_content import (Student, StudentProgress, Commitment, StudentPoints, 
                             LearningContent, StudentBehavior, AccountabilityPartner)
 from datetime import datetime, timedelta
 import random
@@ -76,6 +76,16 @@ class SmartNudgeSystem:
 
     def check_and_send_nudges(self, student_id):
         logger.info(f"Checking nudges for student {student_id}")
+        student = self.session.query(Student).filter_by(id=student_id).first()
+
+        if not student:
+            logger.warning(f"Student {student_id} not found")
+            return []
+
+        if student.no_nudges:
+            logger.info(f"Nudges disabled for student {student_id}")
+            return []
+
         nudges = []
         
         # Get student data
@@ -280,6 +290,10 @@ class SmartNudgeSystem:
         ).first()
     
     def get_personalized_nudge(self, student_id, context='dashboard'):
+        student = self.session.query(Student).filter_by(id=student_id).first()
+        if student and student.no_nudges:
+            return None
+
         all_nudges = self.check_and_send_nudges(student_id)
         
         if not all_nudges:
