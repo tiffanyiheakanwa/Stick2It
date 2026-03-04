@@ -6,7 +6,6 @@ Runs automated checks & nudges
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 import traceback
-
 from commitment_system import CommitmentSystem
 from nudge_system import SmartNudgeSystem
 from progress import ProgressTracker
@@ -35,6 +34,7 @@ def check_commitments():
         safe_execute(commitment_system.check_all_commitments())
     except Exception as e:
         print(f"❌ Error in check_commitments: {e}")
+        logger.error(f"❌ Error in check_commitments: {e}")
         traceback.print_exc()
 
 def send_nudges():
@@ -45,6 +45,7 @@ def send_nudges():
         safe_execute(nudge_system.run_global_nudge_cycle())
     except Exception as e:
         print(f"❌ Error in send_nudges: {e}")
+        logger.error(f"❌ Error in send_nudges: {e}")
         traceback.print_exc()
 
 def update_streaks():
@@ -57,12 +58,22 @@ def update_streaks():
         print(f"❌ Error in update_streaks: {e}")
         traceback.print_exc()
 
+def protect_streaks():
+    """NEW: Specific check for students at risk of losing streaks."""
+    try:
+        logger.info("🔥 Running job: protect_streaks")
+        # Logic triggers specifically for 'Streak at Risk' nudges
+        safe_execute(nudge_system.trigger_streak_protection_cycle())
+    except Exception as e:
+        logger.error(f"❌ Error in protect_streaks: {e}")
+
 # =========================
 # SCHEDULE JOBS
 # =========================
 
 scheduler.add_job(check_commitments, "interval", minutes=30, id="check_commitments")
 scheduler.add_job(send_nudges, "interval", minutes=60, id="send_nudges")
+scheduler.add_job(protect_streaks, "cron", hour="18-23", id="streak_protection")
 scheduler.add_job(update_streaks, "cron", hour=0, id="update_streaks")  # runs at midnight
 
 # =========================

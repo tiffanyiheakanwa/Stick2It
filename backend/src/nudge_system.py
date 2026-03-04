@@ -3,8 +3,24 @@ Smart Nudging System - Just-in-Time Adaptive Interventions
 """
 from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import sessionmaker
-from database_setup_content import (Student, StudentProgress, Commitment, StudentPoints, 
-                            LearningContent, StudentBehavior, AccountabilityPartner)
+from database_setup_content import (
+    Student, 
+    StudentProgress, 
+    Commitment, 
+    StudentPoints, 
+    LearningContent, 
+    StudentBehavior, 
+    AccountabilityPartner
+    )
+from .models import (
+    Student, 
+    StudentProgress, 
+    Commitment, 
+    StudentPoints, 
+    LearningContent, 
+    StudentBehavior, 
+    Nudge  
+)
 from datetime import datetime, timedelta
 import random
 from logger import logger
@@ -75,36 +91,50 @@ class SmartNudgeSystem:
         self.sent_cache[(student_id, nudge_type)] = datetime.utcnow()
 
     def check_and_send_nudges(self, student_id):
-        logger.info(f"Checking nudges for student {student_id}")
-        student = self.session.query(Student).filter_by(id=student_id).first()
+        """
+        Refactored: Triggers nudges based on dynamic P_fail threshold.
+        """
+        logger.info(f"🧠 AI Checking risk for student {student_id}")
+        
+        # 1. Get all pending commitments for this student
+        active_commitments = self.session.query(Commitment).filter(
+            and_(Commitment.student_id == student_id, Commitment.status == 'pending')
+        ).all()
 
-        if not student:
-            logger.warning(f"Student {student_id} not found")
-            return []
+        nudges_to_send = []
 
-        if student.no_nudges:
-            logger.info(f"Nudges disabled for student {student_id}")
-            return []
+        for commit in active_commitments:
+            # 2. Calculate dynamic risk
+            p_fail = self.calculate_pfail(commit)
+            
+            # 3. Log the prediction for future ML training (ml_ready.csv)
+            self._log_prediction(student_id, commit.assignment_id, p_fail)
 
-        nudges = []
-        
-        # Get student data
-        behavior = self._get_student_behavior(student_id)
-        if not behavior:
-            return nudges
-        
-        # Run all nudge checks
-        nudges.extend(self._check_inactivity(student_id, behavior))
-        nudges.extend(self._check_deadlines(student_id))
-        nudges.extend(self._check_missed_commitments(student_id))
-        nudges.extend(self._check_streak_risk(student_id))
-        nudges.extend(self._check_progress_milestones(student_id))
-        
-        # Prioritize nudges (max 2 per day to avoid fatigue)
-        nudges = self._prioritize_nudges(nudges)[:2]
-        
-        return nudges
-    
+            # 4. Trigger logic: Threshold of 0.75
+            if p_fail >= 0.75:
+                message = random.choice(self.nudge_templates['deadline_approaching']).format(
+                    content=commit.assignment.title,
+                    hours=int((commit.assignment.due_date - datetime.utcnow()).total_seconds() / 3600)
+                )
+                
+                nudges_to_send.append({
+                    'type': 'AI_DYNAMIC_RISK',
+                    'p_fail': p_fail,
+                    'message': message,
+                    'assignment_id': commit.assignment_id
+                })
+
+        # Execute and log the top priority nudge
+        if nudges_to_send:
+            top_nudge = max(nudges_to_send, key=lambda x: x['p_fail'])
+            self._send_personalized_alert(
+                student_id, 
+                top_nudge['type'], 
+                top_nudge['message'], 
+                top_nudge['assignment_id']
+            )
+        return nudges_to_send
+
     def _check_inactivity(self, student_id, behavior):
         """Check if student has been inactive"""
         nudges = []
@@ -307,20 +337,103 @@ class SmartNudgeSystem:
         
         return relevant[0] if relevant else None
     
-
-    def calculate_mock_pfail(self, commitment):
-        # This is a placeholder for your Phase 3 Machine Learning model
+    def calculate_pfail(self, commitment):
+        """
+        Calculates a mock Probability of Failure (P_fail).
+        Formula: (Work Required / Time Remaining) adjusted by student's historical success.
+        """
         now = datetime.utcnow()
-        total_time = (commitment.committed_datetime - commitment.created_at).total_seconds()
-        time_left = (commitment.committed_datetime - now).total_seconds()
+        deadline = commitment.assignment.due_date
+        created_at = commitment.created_at
         
-        # If 80% of time is gone and status is still 'pending', risk is very high
-        progress_ratio = time_left / total_time
-        if progress_ratio < 0.2:
-            return 0.85 # 85% probability of failure
-        return 0.30
+        total_window = (deadline - created_at).total_seconds()
+        time_remaining = (deadline - now).total_seconds()
+        
+        if time_remaining <= 0:
+            return 1.0 # Deadline passed
+            
+        # Estimate complexity based on stake (higher points = higher complexity)
+        # Scale 1-10 points to a 'work units' factor
+        work_required_factor = max(1, commitment.stake_value / 5) 
+        
+        # Basic Risk: How much of the window is left vs. complexity
+        # A value > 1.0 means the student is mathematically 'behind'
+        time_ratio = time_remaining / total_window
+        risk_score = (work_required_factor * (1 - time_ratio))
+        
+        # Adjust by student's historical success rate (Inverse relationship)
+        # If they succeed 90% of the time, risk decreases
+        student_factor = 1.2 - (commitment.student.avg_success_rate or 0.5)
+        
+        final_p_fail = min(0.99, max(0.01, risk_score * student_factor))
+        return round(final_p_fail, 2)
+    
+    def trigger_streak_protection_cycle(self):
+        """
+        Identifies students who have not completed a task today 
+        and are at risk of losing a 3+ day streak.
+        """
+        logger.info("Checking for streaks at risk...")
+        
+        # 1. Find students with active streaks
+        at_risk_students = self.session.query(StudentPoints).filter(
+            StudentPoints.current_streak >= 3
+        ).all()
 
+        for points in at_risk_students:
+            # 2. Check if they have already completed a commitment today
+            today = datetime.utcnow().date()
+            last_activity = points.last_commitment_date.date() if points.last_commitment_date else None
+            
+            if last_activity != today:
+                # 3. Trigger Loss Aversion Nudge
+                message = random.choice(self.nudge_templates['loss_aversion'])
+                message = message.format(
+                    streak=points.current_streak,
+                    points=points.total_points
+                )
+                
+                self._send_personalized_alert(points.student_id, "STREAK_PROTECTION", message)
+                logger.info(f"🔥 Streak protection nudge sent to student {points.student_id}")
 
+    def _send_personalized_alert(self, student_id, nudge_type, message, assignment_id=None):
+        """
+        Logs the nudge in the database for AI training and triggers delivery.
+        """
+        try:
+            # Create a record in the Nudges table
+            new_nudge = Nudge(
+                student_id=student_id,
+                assignment_id=assignment_id,
+                message=message,
+                nudge_type=nudge_type,
+                sent_at=datetime.utcnow()
+            )
+            self.session.add(new_nudge)
+            self.session.commit()
+            
+            # TODO: Add your actual email/push notification delivery logic here
+            logger.info(f"✅ Nudge successfully logged for student {student_id}")
+            
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"❌ Failed to log nudge: {e}")
+
+    def _log_prediction(self, student_id, assignment_id, p_fail):
+        """
+        Logs every AI calculation. This becomes the training data for Phase 4.
+        """
+        from .models import Prediction # Ensure Prediction is imported
+        
+        new_pred = Prediction(
+            student_id=student_id,
+            assignment_id=assignment_id,
+            risk_score=p_fail, # Changed from 'risk_level' to Float score
+            predicted_at=datetime.utcnow()
+        )
+        self.session.add(new_pred)
+        self.session.commit()
+        
     def close(self):
         self.session.close()
 
