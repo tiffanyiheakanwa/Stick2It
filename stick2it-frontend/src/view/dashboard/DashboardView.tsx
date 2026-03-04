@@ -21,7 +21,13 @@ export function DashboardView({
 }: DashboardViewProps) {
   return (
     <div className="space-y-6">
-      <WelcomeCard reminders={reminders} />
+      <div className="p-0">
+        <div className="pl-4 pb-4">
+          <h1 className="font-semibold text-xl">Hi, Tiffany</h1>
+          <p className="text-blue-600">Let's finish your task today!</p>
+        </div>
+        <WelcomeCard reminders={reminders} />
+      </div>
 
       <QuickReminderCreation onAddReminder={addReminder} />
 

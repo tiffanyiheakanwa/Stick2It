@@ -1,340 +1,176 @@
-"""
-Hybrid Commitment Device System (Integrity-Enforced)
-"""
-
-from sqlalchemy import create_engine, and_
-from sqlalchemy.orm import sessionmaker
-from database_setup_content import (
-    Commitment, StudentPoints, AccountabilityPartner, LearningContent
-)
+import uuid
 from datetime import datetime, timedelta
-from logger import logger
-from utils import safe_execute
+from sqlalchemy.orm import Session
+from .models import Assignment, Commitment, StudentPoints, Student
+from .logger import logger
+from .utils import safe_execute
 
 class CommitmentSystem:
-    def __init__(self):
-        engine = create_engine("sqlite:///procrastination.db")
-        Session = sessionmaker(bind=engine)
-        self.session = Session()
+    def __init__(self, db_session: Session):
+        """
+        Initializes the system with a database session.
+        """
+        self.session = db_session
 
-    def create_commitment(self, student_id, content_id, committed_datetime,
-                          commitment_type="start_time"):
-        logger.info(f"Creating commitment for student {student_id}, content {content_id}")
+    def create_commitment(self, student_id, assignment_id, stake_type, stake_value, penalty_message, buddy_email, buddy_name):
+        """
+        Creates a high-stakes commitment linked to an assignment.
+        Generates a unique verification token for the Accountability Partner.
+        """
+        logger.info(f"Creating {stake_type} commitment for student {student_id}")
 
-        if committed_datetime <= datetime.utcnow():
-            return {"success": False, "error": "Commitment time must be in the future"}
+        # 1. Verify the assignment exists
+        assignment = self.session.query(Assignment).filter(Assignment.id == assignment_id).first()
+        if not assignment:
+            return {"success": False, "error": "Assignment not found"}
 
-        content = self.session.query(LearningContent).filter(
-            LearningContent.id == content_id
-        ).first()
+        # 2. Generate unique token for Buddy Verification Link
+        verification_token = str(uuid.uuid4())
 
-        if not content:
-            return {"success": False, "error": "Content not found"}
-
-        points_map = {"easy": 5, "medium": 10, "hard": 15}
-        points = points_map.get(content.difficulty, 10)
-
-        commitment = Commitment(
-            id_student=student_id,
-            content_id=content_id,
-            commitment_type=commitment_type,
-            committed_datetime=committed_datetime,
-            pledge_text=f"I will complete '{content.title}' by {committed_datetime}",
-            points_at_stake=points,
+        # 3. Create the Commitment record
+        new_commitment = Commitment(
+            assignment_id=assignment_id,
+            student_id=student_id,
+            stake_type=stake_type,
+            stake_value=stake_value,
+            penalty_message=penalty_message,
+            buddy_name=buddy_name,
+            buddy_email=buddy_email,
+            verification_token=verification_token,
             status="pending"
         )
 
-        self.session.add(commitment)
-        self._update_student_points(student_id, new_commitment=True)
+        self.session.add(new_commitment)
+        
+        # 4. Initialize points if this is a points-based stake
+        if stake_type == "Points":
+            self._initialize_points_record(student_id)
+
         self.session.commit()
-        logger.info(f"Commitment created with ID {commitment.id} for student {student_id}")
+        
+        # 5. Notify the partner immediately that the contract is locked
+        self._send_initial_buddy_alert(new_commitment)
+
         return {
-            "success": True,
-            "commitment_id": commitment.id,
-            "points_at_stake": points
+            "success": True, 
+            "commitment_id": new_commitment.id,
+            "verification_token": verification_token
         }
 
-    def check_commitment(self, commitment_id, actual_action_time=None):
-        """Check commitment ONLY after deadline"""
-        logger.info(f"Checking commitment {commitment_id}")
-        commitment = self.session.query(Commitment).filter(
-            Commitment.id == commitment_id
-        ).first()
+    def check_commitment(self, commitment_id, actual_action_time=None, allow_grace_period=False):
+        """
+        Strictly enforces deadlines. If it's past the deadline, it's broken.
+        """
+        commitment = self.session.query(Commitment).filter(Commitment.id == commitment_id).first()
 
+        if not commitment or commitment.status != "pending":
+            return {"success": False, "error": "Invalid or inactive commitment"}
+
+        now = actual_action_time or datetime.utcnow()
+        deadline = commitment.assignment.due_date
+        
+        # Strict Integrity Enforcement
+        if now > deadline:
+            # Optional 1-hour grace period if explicitly requested for UX
+            if allow_grace_period and now <= (deadline + timedelta(hours=1)):
+                return {"success": True, "status": "pending", "message": "In grace period"}
+            else:
+                return self._process_failure(commitment)
+        
+        return {"success": True, "status": "pending"}
+
+    def verify_commitment(self, token):
+        """
+        Called when a Buddy clicks the verification link. 
+        Releases the stake and updates student streaks.
+        """
+        commitment = self.session.query(Commitment).filter(Commitment.verification_token == token).first()
+        
         if not commitment:
-            return {"success": False, "error": "Commitment not found"}
+            return {"success": False, "error": "Invalid verification token"}
 
         if commitment.status != "pending":
             return {"success": True, "status": commitment.status}
 
-        now = actual_action_time or datetime.utcnow()
-
-        if now < commitment.committed_datetime:
-            return {
-                "success": True,
-                "status": "pending",
-                "message": "Deadline not reached"
-            }
-
-        grace = timedelta(hours=1)
-
-        if now <= commitment.committed_datetime + grace:
-            commitment.status = "kept"
-            self._update_student_points(
-                commitment.id_student,
-                kept_commitment=True,
-                points_change=commitment.points_at_stake
-            )
-            result = "kept"
-        else:
-            commitment.status = "broken"
-            self._update_student_points(
-                commitment.id_student,
-                broken_commitment=True,
-                points_change=-commitment.points_at_stake
-            )
-            result = "broken"
-
-        commitment.completed_at = now
+        commitment.is_verified_by_buddy = True
+        commitment.status = "kept"
+        commitment.assignment.status = "Completed"
+        commitment.completed_at = datetime.utcnow()
+        
+        # Update points and streaks logic from original implementation
+        self._update_student_stats(commitment.student_id, success=True, points_change=commitment.stake_value)
+        
         self.session.commit()
+        logger.info(f"Commitment {commitment.id} verified as KEPT.")
+        return {"success": True, "message": "Commitment verified! Points released and streak updated."}
 
-        self._notify_partner(commitment.id_student, commitment, result)
-        logger.info(f"Commitment {commitment_id} checked. Status: {result}")
-        return {"success": True, "status": result}
+    def _process_failure(self, commitment):
+        """Executes the penalty and notifies the partner of the failure."""
+        commitment.status = "broken"
+        
+        # Update points/streaks for failure
+        self._update_student_stats(commitment.student_id, success=False, points_change=commitment.stake_value)
+        
+        # Execute Social Stake: Notify partner with the specific penalty
+        self._notify_partner(commitment, result="broken")
+        
+        self.session.commit()
+        return {"success": True, "status": "broken"}
 
-    def _update_student_points(self, student_id, new_commitment=False,
-                               kept_commitment=False, broken_commitment=False,
-                               points_change=0):
+    def _update_student_stats(self, student_id, success, points_change=0):
+        """
+        Updates long-term success rate for AI and point streaks for gamification.
+        """
+        # 1. Update AI success rate
+        student = self.session.query(Student).filter(Student.id == student_id).first()
+        if student:
+            rate = 1.0 if success else 0.0
+            student.avg_success_rate = (student.avg_success_rate + rate) / 2
 
-        points = safe_execute(self.session.query(StudentPoints).filter(
-            StudentPoints.id_student == student_id
-        ).first())
-
+        # 2. Update Points and Streaks
+        points = self.session.query(StudentPoints).filter(StudentPoints.student_id == student_id).first()
         if not points:
-            points = StudentPoints(
-                id_student=student_id,
-                total_points=100,
-                current_streak=0,
-                longest_streak=0
-            )
+            points = StudentPoints(student_id=student_id, total_points=100)
             self.session.add(points)
 
-        if new_commitment:
-            points.total_commitments += 1
-
-        if kept_commitment:
-            points.kept_commitments += 1
-            points.total_points = max(0, points.total_points + points_change)
-            points.points_earned += points_change
-
+        if success:
+            points.total_points += points_change
             today = datetime.utcnow().date()
-            if points.last_commitment_date and (
-                today - points.last_commitment_date.date()
-            ).days == 1:
+            if points.last_commitment_date and (today - points.last_commitment_date.date()).days == 1:
                 points.current_streak += 1
             else:
                 points.current_streak = 1
-
-            points.longest_streak = max(
-                points.longest_streak, points.current_streak
-            )
+            points.longest_streak = max(points.longest_streak, points.current_streak)
             points.last_commitment_date = datetime.utcnow()
-
-        if broken_commitment:
-            points.broken_commitments += 1
-            points.total_points = max(0, points.total_points + points_change)
-            points.points_lost += abs(points_change)
+        else:
+            points.total_points = max(0, points.total_points - points_change)
             points.current_streak = 0
 
-        self.session.commit()
-
-    def get_student_stats(self, student_id):
-        points = safe_execute(self.session.query(StudentPoints).filter(
-            StudentPoints.id_student == student_id
-        ).first())
-
+    def _initialize_points_record(self, student_id):
+        """Ensures the student has a points entry to track streaks."""
+        points = self.session.query(StudentPoints).filter(StudentPoints.student_id == student_id).first()
         if not points:
-            return {"total_points": 100, "current_streak": 0}
+            new_points = StudentPoints(student_id=student_id, total_points=100)
+            self.session.add(new_points)
 
-        return {
-            "total_points": points.total_points,
-            "current_streak": points.current_streak,
-            "longest_streak": points.longest_streak,
-            "success_rate": round(
-                (points.kept_commitments or 0) /
-                max(points.total_commitments or 1, 1) * 100, 1
-            )
-        }
+    def _send_initial_buddy_alert(self, commitment):
+        """Initial notification to buddy that a contract has been locked."""
+        verification_url = f"http://stick2it.app/verify/{commitment.verification_token}"
+        subject = f"Action Required: Accountability Partner for {commitment.buddy_name}"
+        body = f"Your friend committed to: {commitment.assignment.title}\nStake: {commitment.stake_type}\nPenalty: {commitment.penalty_message}\nVerify here: {verification_url}"
+        self._send_email(commitment.buddy_email, subject, body)
 
-    def add_accountability_partner(self, student_id, partner_name,
-                                   partner_email=None, partner_phone=None):
-
-        if not partner_email and not partner_phone:
-            return {"success": False, "error": "Contact required"}
-
-        existing = self.session.query(AccountabilityPartner).filter(
-            and_(
-                AccountabilityPartner.id_student == student_id,
-                AccountabilityPartner.is_active == True
-            )
-        ).first()
-
-        if existing:
-            existing.is_active = False
-
-        partner = AccountabilityPartner(
-            id_student=student_id,
-            partner_name=partner_name,
-            partner_email=partner_email,
-            partner_phone=partner_phone
-        )
-
-        self.session.add(partner)
-        self.session.commit()
-
-        return {"success": True, "partner_id": partner.id}
-
-    # def _notify_partner(self, student_id, commitment, status):
-    #     # MVP: console-only
-    #     print(f"📣 Partner notified: commitment {status}")
-
-    def _notify_partner(self, student_id, commitment, status):
-        """Send notification to accountability partner"""
-        
-        partner = safe_execute(self.session.query(AccountabilityPartner).filter(
-            and_(
-                AccountabilityPartner.id_student == student_id,
-                AccountabilityPartner.is_active == True
-            )
-        ).first())  
-        
-        if not partner or not partner.partner_email:
-            return
-        
-        # Get student name (for now, use ID)
-        student_name = f"Student {student_id}"
-        
-        if status == 'kept' and partner.notify_on_completion:
-            subject = f"🎉 {student_name} kept their commitment!"
-            body = f"""
-            Great news!
-            
-            {student_name} just completed: {commitment.pledge_text}
-            
-            They're doing great! Send them an encouraging message!
-            
-            - Stick2It App
-            """
-        elif status == 'broken' and partner.notify_on_miss:
+    def _notify_partner(self, commitment, result):
+        """Notifies partner of completion or failure."""
+        student_name = commitment.student.name
+        if result == 'broken':
             subject = f"😢 {student_name} missed their commitment"
-            body = f"""
-            Hey {partner.partner_name},
-            
-            {student_name} missed this commitment: {commitment.pledge_text}
-            
-            They could use some encouragement. Reach out and check in!
-            
-            - Stick2It App
-            """
+            body = f"Penalty Action Required: {commitment.penalty_message}"
         else:
-            return
-        
-        self._send_email(partner.partner_email, subject, body)
-    
-    def _send_partner_verification(self, partner):
-        """Send verification email to partner"""
-        
-        subject = "You've been added as an Accountability Partner!"
-        body = f"""
-        Hi {partner.partner_name},
-        
-        Student {partner.id_student} has added you as their accountability partner on Stick2It!
-        
-        You'll receive notifications when they:
-        - Complete commitments (so you can celebrate with them!)
-        - Miss deadlines (so you can encourage them)
-        
-        You can reply to this email to confirm you're okay with this.
-        
-        Thank you for helping them succeed!
-        
-        - Stick2It Team
-        """
-        
-        self._send_email(partner.partner_email, subject, body)
-    
+            subject = f"✅ {student_name} kept their commitment!"
+            body = f"They finished {commitment.assignment.title}. Great job!"
+        self._send_email(commitment.buddy_email, subject, body)
+
     def _send_email(self, to_email, subject, body):
-        """
-        Send email (simplified version for MVP)
-        In production, use SendGrid or similar
-        """
-        print(f"\n📧 EMAIL NOTIFICATION:")
-        print(f"To: {to_email}")
-        print(f"Subject: {subject}")
-        print(f"Body:\n{body}")
-        print("="*60)
-        
-        # TODO: Implement actual email sending
-        # For now, just print to console
-        # In production:
-        # - Use SendGrid API
-        # - Or SMTP with Gmail
-        # - Or AWS SES
-    
-    def close(self):
-        self.session.close()
-
-
-# Test the system
-if __name__ == "__main__":
-    system = CommitmentSystem()
-    
-    student_id = 11391
-    content_id = 1  # "Welcome & Overview"
-    
-    print("\n" + "="*60)
-    print("COMMITMENT SYSTEM TEST")
-    print("="*60)
-    
-    # 1. Add accountability partner
-    print("\n1️⃣ Adding accountability partner...")
-    result = system.add_accountability_partner(
-        student_id=student_id,
-        partner_name="Sarah Johnson",
-        partner_email="tiffanyiheakanwa@gmail.com"
-    )
-    print(f"   {result['message']}")
-    
-    # 2. Create commitment
-    print("\n2️⃣ Creating commitment...")
-    commit_time = datetime.utcnow() + timedelta(hours=2)  # 2 hours from now
-    result = system.create_commitment(
-        student_id=student_id,
-        content_id=content_id,
-        committed_datetime=commit_time,
-        commitment_type='start_time'
-    )
-    print(f"   Pledge: {result['pledge']}")
-    print(f"   Points at stake: {result['points_at_stake']}")
-    commitment_id = result['commitment_id']
-    
-    # 3. Simulate keeping the commitment (start on time)
-    print("\n3️⃣ Simulating kept commitment...")
-    result = system.check_commitment(
-        commitment_id=commitment_id,
-        actual_action_time=commit_time - timedelta(minutes=10)  # 10 min early!
-    )
-    print(f"   {result['message']}")
-    
-    # 4. Check stats
-    print("\n4️⃣ Student stats:")
-    stats = system.get_student_stats(student_id)
-    print(f"   Total points: {stats['total_points']}")
-    print(f"   Current streak: {stats['current_streak']} days 🔥")
-    print(f"   Success rate: {stats['success_rate']}%")
-    print(f"   Kept: {stats['kept']}/{stats['total_commitments']}")
-    
-    print("\n✅ Test complete!")
-    print("="*60)
-    
-    system.close()
+        """Mock email sender for MVP - prints to console."""
+        print(f"\n📧 EMAIL TO: {to_email}\nSubject: {subject}\nBody: {body}\n" + "="*30)

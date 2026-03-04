@@ -307,6 +307,20 @@ class SmartNudgeSystem:
         
         return relevant[0] if relevant else None
     
+
+    def calculate_mock_pfail(self, commitment):
+        # This is a placeholder for your Phase 3 Machine Learning model
+        now = datetime.utcnow()
+        total_time = (commitment.committed_datetime - commitment.created_at).total_seconds()
+        time_left = (commitment.committed_datetime - now).total_seconds()
+        
+        # If 80% of time is gone and status is still 'pending', risk is very high
+        progress_ratio = time_left / total_time
+        if progress_ratio < 0.2:
+            return 0.85 # 85% probability of failure
+        return 0.30
+
+
     def close(self):
         self.session.close()
 
