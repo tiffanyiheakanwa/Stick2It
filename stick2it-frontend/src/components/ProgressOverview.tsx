@@ -22,7 +22,7 @@ export const StressMeter = ({ pFail }: StressMeterProps) => {
           {percentage}% Risk
         </span>
       </div>
-      <Progress value={percentage} className="h-3" indicatorClassName={getMeterColor(pFail)} />
+      <Progress value={percentage} className="h-3"  />
       <p className="mt-2 text-xs text-muted-foreground italic">
         {pFail > 0.75 ? "⚠️ High risk of procrastination detected. Take action now!" : "You are currently on track."}
       </p>
