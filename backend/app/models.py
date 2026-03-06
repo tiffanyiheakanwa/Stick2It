@@ -10,9 +10,11 @@ class Student(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100))
     email = Column(String(120), unique=True, index=True, nullable=False)
+    avg_success_rate = Column(Float, default=0.5) 
     password_hash = Column(String(255), nullable=False)
-    avg_success_rate = Column(Float, default=0.0) 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    no_nudges = Column(Boolean, default=False)      # Opt-out for nudges
+    model_opt_out = Column(Boolean, default=False)  # Opt-out for ML modeling
 
     # Password helpers migrated from database_setup_content.py
     def set_password(self, password):
@@ -23,12 +25,15 @@ class Student(Base):
 
     # Relationships
     assignments = relationship("Assignment", back_populates="student")
-    points = relationship("StudentPoints", uselist=False, back_populates="student")
-    behavior = relationship("StudentBehavior", uselist=False, back_populates="student")
+    commitments = relationship("Commitment", back_populates="student")
+    points = relationship("StudentPoints", back_populates="student", uselist=False)
+    behavior = relationship("StudentBehavior", back_populates="student", uselist=False)
+    nudges = relationship("Nudge", back_populates="student")
+    predictions = relationship("Prediction", back_populates="student")
 
 class StudentBehavior(Base):
     """ Migrated for AI Feature Set Support """
-    __tablename__ = 'behaviors'
+    __tablename__ = 'student_behavior'
     id = Column(Integer, primary_key=True)
     student_id = Column(Integer, ForeignKey("students.id"))
     last_minute_ratio = Column(Float)
@@ -45,22 +50,23 @@ class StudentBehavior(Base):
 class Assignment(Base):
     __tablename__ = "assignments"
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("students.id"))
     title = Column(String(200))
     description = Column(Text)
     due_date = Column(DateTime)
     status = Column(String(20), default="Pending") 
+    student_id = Column(Integer, ForeignKey("students.id"))
     
     student = relationship("Student", back_populates="assignments")
-    commitment = relationship("Commitment", back_populates="assignment", uselist=False)
+    commitments = relationship("Commitment", back_populates="assignment", uselist=False)
 
 class Commitment(Base):
     """ High-Stakes Social Penalties with Buddy Verification """
     __tablename__ = 'commitments'
-    id = Column(Integer, primary_key=True)
-    assignment_id = Column(Integer, ForeignKey("assignments.id"))
+    id = Column(Integer, primary_key=True, index= True)
     student_id = Column(Integer, ForeignKey("students.id")) # Explicit link for easy queries
-    
+    assignment_id = Column(Integer, ForeignKey("assignments.id"))
+    content_id = Column(Integer, ForeignKey("learning_content.id"), nullable=True) # Linked to adaptive content
+
     stake_type = Column(String(50)) # 'Financial', 'Social', 'Points'
     stake_value = Column(Integer, default=10)
     penalty_message = Column(Text) 
@@ -72,7 +78,12 @@ class Commitment(Base):
     
     status = Column(String(20), default='pending') 
     created_at = Column(DateTime, default=func.now())
-    assignment = relationship("Assignment", back_populates="commitment")
+    committed_datetime = Column(DateTime)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    student = relationship("Student", back_populates="commitments")
+    assignment = relationship("Assignment", back_populates="commitments")
 
 class Interaction(Base):
     __tablename__ = "interactions"
@@ -94,6 +105,29 @@ class StudentPoints(Base):
     
     student = relationship("Student", back_populates="points")
 
+class LearningContent(Base):
+    """Data for the Adaptive Recommender"""
+    __tablename__ = "learning_content"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String)
+    difficulty = Column(String)  # easy, medium, hard
+    estimated_minutes = Column(Integer)
+    topic = Column(String)
+    module = Column(String)
+    url = Column(String)
+    prerequisites = Column(String)  # Comma-separated IDs
+
+class StudentProgress(Base):
+    __tablename__ = "student_progress"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"))
+    content_id = Column(Integer, ForeignKey("learning_content.id"))
+    status = Column(String)  # started, completed
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
 class Nudge(Base):
     __tablename__ = "nudges"
     id = Column(Integer, primary_key=True, index=True)
@@ -102,3 +136,17 @@ class Nudge(Base):
     message = Column(Text)
     nudge_type = Column(String(50)) 
     sent_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    student = relationship("Student", back_populates="nudges")
+
+class Prediction(Base):
+    """Historical log for Phase 4 evaluation"""
+    __tablename__ = "predictions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"))
+    assignment_id = Column(Integer, ForeignKey("assignments.id"))
+    risk_score = Column(Float)
+    predicted_at = Column(DateTime, default=datetime.utcnow)
+
+    student = relationship("Student", back_populates="predictions")

@@ -1,4 +1,4 @@
-from logger import logger
+from .logger import logger
 import traceback
 
 def safe_execute(func, *args, **kwargs):

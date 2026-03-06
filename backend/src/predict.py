@@ -7,8 +7,9 @@ import pandas as pd
 import numpy as np
 import re
 import os
-
-
+from datetime import datetime
+from backend.app.database import get_db_session
+from backend.app.models import StudentBehavior, Student
 
 class ProcrastinationPredictor:
     """Class to handle procrastination risk predictions"""
@@ -27,6 +28,12 @@ class ProcrastinationPredictor:
     # -----------------------------
     def predict_risk(self, features_dict):
         features_df = pd.DataFrame([features_dict])
+
+        # Ensure all expected features exist, filling missing with 0.0
+        for col in self.feature_names:
+            if col not in features_df.columns:
+                features_df[col] = 0.0
+
         features_df = features_df[self.feature_names]
         prediction = self.model.predict(features_df)[0]
         probability = self.model.predict_proba(features_df)[0]
@@ -48,44 +55,41 @@ class ProcrastinationPredictor:
         }
 
     def predict_from_database(self, student_id):
-        from database_setup import get_session, StudentBehavior, Student
+        with get_db_session() as session:  # Auto-closes session
+            student = session.query(Student).filter_by(id=student_id).first()
+            if not student:
+                raise ValueError(f"Student {student_id} not found")
 
-        session = get_session()
-
-        student = session.query(Student).filter_by(id=student_id).first()
-        if not student:
-            session.close()
-            raise ValueError(f"Student {student_id} not found")
-
-        if student.model_opt_out:
-            session.close()
-            return {
-                "prediction": "disabled",
-                "reason": "User opted out of predictive modeling",
-                "risk_category": None,
-                "risk_score": None
-            }
-    
-        behavior = session.query(StudentBehavior).filter(
-            StudentBehavior.id_student == student_id
-        ).first()
+            if student.model_opt_out:
+                return {
+                    "prediction": "disabled",
+                    "reason": "User opted out of predictive modeling",
+                    "risk_category": None,
+                    "risk_score": None
+                }
         
-        if not behavior:
-            session.close()
-            raise ValueError(f"Student {student_id} not found in database")
+            behavior = session.query(StudentBehavior).filter(
+                StudentBehavior.id_student == student_id
+            ).first()
+            
+            if not behavior:
+                raise ValueError(f"Student {student_id} not found in database")
 
-        features = {
-            'last_minute_ratio': behavior.last_minute_ratio,
-            'engagement_intensity': behavior.engagement_intensity,
-            'deadline_pressure': behavior.deadline_pressure,
-            'login_consistency': behavior.login_consistency,
-            'early_starter': behavior.early_starter,
-            'completion_rate': behavior.completion_rate,
-            'activity_span': behavior.activity_span
-        }
+            now = datetime.utcnow()
 
-        session.close()
-        return self.predict_risk(features)
+            features = {
+                'last_minute_ratio': behavior.last_minute_ratio,
+                'engagement_intensity': behavior.engagement_intensity,
+                'deadline_pressure': behavior.deadline_pressure,
+                'login_consistency': behavior.login_consistency,
+                'early_starter': behavior.early_starter,
+                'completion_rate': behavior.completion_rate,
+                'activity_span': behavior.activity_span,
+                'hour_of_day': now.hour,
+                'day_of_week': now.weekday()  # 0=Monday, 6=Sunday
+            }
+
+            return self.predict_risk(features)
 
     # -----------------------------
     # NEW: Task-based prediction
@@ -93,33 +97,23 @@ class ProcrastinationPredictor:
     def predict_from_task(self, task_description: str, user_features=None):
         """
         Predict procrastination risk for a single task
-
-        Parameters:
-        -----------
-        task_description : str
-            The description of the task
-        user_features : dict (optional)
-            Past student behavior features
-
-        Returns:
-        --------
-        dict with prediction results (same format as predict_risk)
         """
 
-        # --- Feature extraction ---
-        features_dict = {}
+        now = datetime.utcnow()
+        features_dict = {
+            'task_length': len(task_description.split()),
+            'hour_of_day': now.hour,
+            'day_of_week': now.weekday()
+        }
 
-        # 1️⃣ Length of task
-        features_dict['task_length'] = len(task_description.split())
-
-        # 2️⃣ Keyword complexity (count of 'hard' words)
+        # Keyword complexity (count of 'hard' words)
         keywords = ['essay', 'report', 'project', 'analysis', 'presentation', 'coding', 'design', 'study']
         features_dict['complexity_words'] = sum(1 for word in keywords if re.search(r'\b' + word + r'\b', task_description.lower()))
 
-        # 3️⃣ Estimated duration (simple heuristic: words / 100)
+        # Estimated duration (simple heuristic: words / 100)
         features_dict['estimated_duration'] = features_dict['task_length'] / 100.0  # e.g., 1 unit ~ 100 words
 
-        # 4️⃣ Merge past user behavior if provided
+        # Merge past user behavior if provided
         if user_features:
             features_dict.update(user_features)
 
