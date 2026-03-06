@@ -1,115 +1,69 @@
-import { Progress } from "../components/ui/progress";
-
 interface StressMeterProps {
-  pFail: number; // Value from 0.0 to 1.0
+  pFail: number; // 0.0 – 1.0
 }
 
 export const StressMeter = ({ pFail }: StressMeterProps) => {
-  // Map score to color
-  const getMeterColor = (score: number) => {
-    if (score < 0.4) return "bg-green-500";
-    if (score < 0.75) return "bg-yellow-500";
-    return "bg-red-600 animate-pulse";
-  };
-
   const percentage = Math.round(pFail * 100);
 
+  // Convert value to rotation (-90deg to 90deg)
+  const rotation = -90 + pFail * 180;
+
+  const getLabel = () => {
+    if (pFail < 0.4) return "Low Risk";
+    if (pFail < 0.75) return "Moderate Risk";
+    return "High Risk";
+  };
+
   return (
-    <div className="p-4 border rounded-lg bg-card shadow-sm">
-      <div className="flex justify-between items-center mb-2">
-        <h3 className="text-sm font-semibold text-muted-foreground">AI Risk Assessment (P-Fail)</h3>
-        <span className={`text-xs font-bold px-2 py-1 rounded ${getMeterColor(pFail)} text-white`}>
-          {percentage}% Risk
-        </span>
+    <div className="p-6 border rounded-lg bg-card shadow-sm flex flex-col items-center">
+      <h3 className="text-sm font-semibold text-muted-foreground mb-4">
+        AI Risk Assessment (P-Fail)
+      </h3>
+
+      <div className="relative w-80 h-32">
+        {/* Gauge background */}
+        <svg viewBox="0 0 200 100" className="w-full h-full">
+          {/* Green */}
+          <path
+            d="M10 100 A90 90 0 0 1 70 20"
+            stroke="#22c55e"
+            strokeWidth="30"
+            fill="none"
+          />
+
+          {/* Yellow */}
+          <path
+            d="M70 20 A90 90 0 0 1 130 20"
+            stroke="#eab308"
+            strokeWidth="30"
+            fill="none"
+          />
+
+          {/* Red */}
+          <path
+            d="M130 20 A90 90 0 0 1 190 100"
+            stroke="#ef4444"
+            strokeWidth="30"
+            fill="none"
+          />
+        </svg>
+
+        {/* Needle */}
+        <div
+          className="absolute bottom-0 left-1/2 origin-bottom transition-transform duration-500"
+          style={{ transform: `rotate(${rotation}deg)` }}
+        >
+          <div className="w-1 h-20 bg-black rounded"></div>
+        </div>
+
+        {/* Center pivot */}
+        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-black rounded-full"></div>
       </div>
-      <Progress value={percentage} className="h-3"  />
-      <p className="mt-2 text-xs text-muted-foreground italic">
-        {pFail > 0.75 ? "⚠️ High risk of procrastination detected. Take action now!" : "You are currently on track."}
-      </p>
+
+      <div className="mt-4 text-center">
+        <p className="font-bold text-lg">{percentage}%</p>
+        <p className="text-sm text-muted-foreground">{getLabel()}</p>
+      </div>
     </div>
   );
 };
-
-// import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-// import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
-
-// const courseData = [
-//   { name: "Computer Science", progress: 85, color: "#3b82f6" },
-//   { name: "Mathematics", progress: 70, color: "#10b981" },
-//   { name: "Physics", progress: 92, color: "#8b5cf6" },
-// ];
-
-// const weeklyData = [
-//   { name: "Completed", value: 68 },
-//   { name: "Remaining", value: 32 },
-// ];
-
-// const COLORS = ["#10b981", "#e5e7eb"];
-
-// export function ProgressOverview() {
-//   return (
-//     <Card>
-//       <CardHeader>
-//         <CardTitle>Progress Overview</CardTitle>
-//       </CardHeader>
-//       <CardContent className="space-y-6">
-//         <div className="flex items-center gap-8">
-//           <div className="w-32 h-32">
-//             <ResponsiveContainer width="100%" height="100%">
-//               <PieChart>
-//                 <Pie
-//                   data={weeklyData}
-//                   cx="50%"
-//                   cy="50%"
-//                   innerRadius={35}
-//                   outerRadius={55}
-//                   dataKey="value"
-//                   startAngle={90}
-//                   endAngle={-270}
-//                 >
-//                   {weeklyData.map((entry, index) => (
-//                     <Cell key={`cell-${index}`} fill={COLORS[index]} />
-//                   ))}
-//                 </Pie>
-//               </PieChart>
-//             </ResponsiveContainer>
-//             <div className="text-center -mt-20">
-//               <div className="text-gray-900">68%</div>
-//               <div className="text-gray-500">Weekly</div>
-//             </div>
-//           </div>
-          
-//           <div className="flex-1">
-//             <div className="text-gray-900 mb-2">This Week's Progress</div>
-//             <p className="text-gray-500 mb-4">
-//               You've completed 17 out of 25 tasks this week. Great work!
-//             </p>
-//             <div className="flex gap-4">
-//               <div>
-//                 <div className="text-gray-900">17</div>
-//                 <div className="text-gray-500">Completed</div>
-//               </div>
-//               <div>
-//                 <div className="text-gray-900">8</div>
-//                 <div className="text-gray-500">Remaining</div>
-//               </div>
-//             </div>
-//           </div>
-//         </div>
-        
-//         <div className="space-y-4 pt-4 border-t border-gray-200">
-//           <div className="text-gray-900">Course Progress</div>
-//           {courseData.map((course) => (
-//             <div key={course.name} className="space-y-2">
-//               <div className="flex items-center justify-between">
-//                 <span className="text-gray-600">{course.name}</span>
-//                 <span className="text-gray-900">{course.progress}%</span>
-//               </div>
-//               <Progress value={course.progress} className="h-2" />
-//             </div>
-//           ))}
-//         </div>
-//       </CardContent>
-//     </Card>
-//   );
-// }
