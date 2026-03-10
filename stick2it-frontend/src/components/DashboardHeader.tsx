@@ -1,4 +1,4 @@
-import { Bell, Flame, Search, Mail, Menu } from "lucide-react";
+import { Bell, Flame, Menu } from "lucide-react";
 import { Badge } from "./ui/badge";
 
 interface HeaderProps {
@@ -35,17 +35,7 @@ export function DashboardHeader({ onMenuClick }: HeaderProps) {
           </button>
       </div>
 
-      {/* Mobile search bar */}
-      <div className="mt-3 md:hidden">
-        <div className="relative w-full">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-          <input
-            type="text"
-            placeholder="Search reminders..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        </div>
-      </div>
+      
     </header>
   );
 }
