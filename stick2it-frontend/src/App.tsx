@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
+import { DashboardHeader } from "./components/DashboardHeader";
 import { DashboardView } from "./view/dashboard/DashboardView";
 import { RemindersView } from "./view/dashboard/RemindersView";
 import { TodayView } from "./view/dashboard/TodayView";
@@ -225,7 +226,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-600 via-indigo-500 to-purple-600">
+    <div className="min-h-screen overflow-x-hidden bg-gradient-to-br from-indigo-600 via-indigo-500 to-purple-600">
       <Sidebar
         activeSection={activeSection}
         onSectionChange={setActiveSection}
@@ -233,11 +234,15 @@ export default function App() {
         onClose={() => setSidebarOpen(false)}
       />
 
-      <div className="lg:ml-64">
+      <div className="w-full lg:pl-64">
         <div className="min-h-screen bg-white lg:rounded-tl-3xl">
-          <Header onMenuClick={() => setSidebarOpen(true)} />
+          {activeSection === "dashboard" ? (
+            <DashboardHeader onMenuClick={() => setSidebarOpen(true)} />
+          ) : (
+            <Header onMenuClick={() => setSidebarOpen(true)} />
+          )}
 
-          <main className="p-4 md:p-8">{renderContent()}</main>
+          <main className="px-4 md:px-6 lg:px-8 ">{renderContent()}</main>
         </div>
       </div>
     </div>

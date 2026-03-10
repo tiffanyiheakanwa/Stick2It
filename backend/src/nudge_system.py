@@ -29,47 +29,41 @@ class SmartNudgeSystem:
         
         # Nudge templates based on research
         self.nudge_templates = {
-            'inactivity': [
-                "🎯 Hey {name}! You haven't logged in for {days} days. Your streak is waiting!",
-                "⏰ Quick check-in: Just 15 minutes today can keep your {streak}-day streak alive!",
-                "💪 Small steps matter! Even 10 minutes of study today counts."
-            ],
-            'deadline_approaching': [
-                "⚠️ Deadline alert: '{content}' is due in {hours} hours. Start now?",
-                "🚨 Only {hours}h left for '{content}'. Break it into smaller steps!",
-                "⏳ Running low on time for '{content}'. Need help breaking it down?"
-            ],
-            'missed_commitment': [
-                "😔 You missed your pledge for '{content}'. Want to reschedule?",
-                "💭 Life happens! Recommit to '{content}' with a new time?",
-                "🔄 Reset and try again? Set a new commitment for '{content}'."
-            ],
-            'success_reinforcement': [
-                "🎉 Amazing! You kept your commitment! You're on a {streak}-day streak!",
-                "⭐ Success! +{points} points earned. Keep this momentum going!",
-                "🔥 {streak} days strong! You're building great habits!"
-            ],
-            'social_proof': [
-                "👥 {percent}% of students in your cohort have completed '{content}'",
-                "🏆 Top students spent an average of {minutes} min on this topic",
-                "📊 Students who completed this early scored {points}% higher"
-            ],
-            'loss_aversion': [
-                "⚠️ You're about to lose your {streak}-day streak! Quick 10-min session?",
-                "💎 {points} points at risk! Complete your commitment to keep them.",
-                "📉 Missing this will lower your overall performance—stay on track!"
-            ],
-            'progress_celebration': [
-                "🎊 Milestone reached! {completed}/{total} items completed!",
-                "📈 You're {percent}% through the course. Amazing progress!",
-                "💯 Perfect completion rate this week! Keep it up!"
-            ],
-            'peer_encouragement': [
-                "🤝 Your study buddy completed '{content}'. You're next!",
-                "👊 {partner} is cheering for you! Show them what you've got!",
-                "💪 Your accountability partner believes in you. Time to shine!"
-            ]
-        }
+    'inactivity': [
+        "🎯 Hey {name}! You haven't logged in for {days} days. Your streak is waiting!",
+        "⏰ Quick check-in: Just 15 minutes today can keep your {streak}-day streak alive!",
+        "💪 Small steps matter! Even 10 minutes of study today counts."
+    ],
+    'deadline_approaching': [
+        "⚠️ Deadline alert: '{task}' is due in {hours} hours. Start now?",
+        "🚨 Only {hours}h left for '{task}'. Break it into smaller steps!",
+        "⏳ Running low on time for '{task}'. Need help breaking it down?"
+    ],
+    'loss_aversion': [
+        "⚠️ You're about to lose your {streak}-day streak! Don't let it reset to 0. Finish '{task}' now.",
+        "💎 {points_at_risk} points at risk! Complete your commitment to keep them.",
+        "📉 Risk Alert: You're about to lose {points_at_risk} points. That's {streak} days of progress gone if you miss this.",
+        "⚠️ Your {streak}-day win streak is officially in the 'Danger Zone'. Save it before the deadline!"
+    ],
+    'social_accountability': [
+        "👀 Remember your deal with {buddy}? If you don't finish '{task}', they have to: {penalty}.",
+        "🤝 {buddy} is waiting for your verification link. Don't make them execute the penalty: {penalty}.",
+        "📢 Integrity Check: You promised {buddy} you'd finish this. Avoid the consequence: {penalty}."
+    ],
+    'success_reinforcement': [
+        "🎉 Amazing! You kept your commitment! You're on a {streak}-day streak!",
+        "⭐ Success! +{points_at_risk} points earned. Keep this momentum going!",
+        "🔥 {streak} days strong! You're building great habits!"
+    ],
+    'social_proof': [
+        "👥 {percent}% of students in your cohort have completed '{task}'",
+        "📊 Students who completed this early scored {percent}% higher"
+    ],
+    'time_pressure': [
+        "⏰ The clock is ticking on '{task}'. You have {points_at_risk} points on the line.",
+        "⏳ Final hour! Is '{task}' worth losing your {streak}-day streak over?"
+    ]
+}
     
     def _can_send(self, student_id, nudge_type):
         key = (student_id, nudge_type)
@@ -84,38 +78,66 @@ class SmartNudgeSystem:
         self.sent_cache[(student_id, nudge_type)] = datetime.utcnow()
 
     def check_and_send_nudges(self, student_id):
-        """
-        Refactored: Triggers nudges based on actual AI risk scores.
-        """
         with get_db_session() as session:
             logger.info(f"🧠 AI Checking risk for student {student_id}")
             
-            # Calculate the real P_fail using the ML model
-            p_fail = self.calculate_pfail(session, student_id)
+            # 1. Fetch Student, Points, and Risk Data
+            student = session.query(Student).get(student_id)
+            points = session.query(StudentPoints).filter_by(student_id=student_id).first()
+            risk_data = self.predictor.predict_from_database(student_id)
+            p_fail = risk_data['risk_score'] / 100.0  # Normalize to 0.0-1.0 for consistency
+            # p_fail = self.calculate_pfail(session, student_id)
 
-            # 1. Get all pending commitments for this student
+            if not student or not points:
+                logger.info(f"Missing data for student {student_id}")
+                return []
+        
+            # 2. Get all pending commitments
             active_commitments = session.query(Commitment).filter(
                 and_(Commitment.student_id == student_id, Commitment.status == 'pending')
             ).all()
-
+        
+            if not active_commitments:
+                return []
+        
             nudges_to_send = []
 
             for commit in active_commitments:
-                # # 2. Calculate dynamic risk
-                # p_fail = self.calculate_pfail(commit)
-                # 3. Log the prediction for future ML training (ml_ready.csv)
+                # 3. Calculate time-based variables FIRST
+                now = datetime.utcnow()
+                hours_left = int((commit.assignment.due_date - now).total_seconds() / 3600)
+            
+            # Simple inactive days calc (Assuming you have a last_login field)
+            # days_inactive = (now - student.last_login).days if student.last_login else 0
+                days_inactive = 1 # Placeholder if field doesn't exist yet
+
                 self._log_prediction(student_id, commit.assignment_id, p_fail)
 
-                # 4. Trigger logic: Threshold of 0.75
+                nudge_context = {
+                    'name': student.name,
+                    'streak': points.current_streak,
+                    'task': commit.assignment.title,
+                    'hours': hours_left,
+                    'points_at_risk': commit.stake_value,
+                    'buddy': commit.buddy_name,
+                    'penalty': commit.penalty_message,
+                    'days': days_inactive, 
+                    'percent': 85 # Mock social proof value
+                }
+
+
+                # 6. Trigger logic: Threshold of 0.75
                 if p_fail >= 0.75:
-                    hours_left = int((commit.assignment.due_date - datetime.utcnow()).total_seconds() / 3600)
-                    message = random.choice(self.nudge_templates['deadline_approaching']).format(
-                        content=commit.assignment.title,
-                        hours=hours_left
-                    )
+                    if p_fail >= 0.85:
+                        category = 'social_accountability'
+                    else:
+                        category = 'loss_aversion'
+
+                    template = random.choice(self.nudge_templates[category])
+                    message = template.format(**nudge_context)
                     
                     nudges_to_send.append({
-                        'type': 'AI_DYNAMIC_RISK',
+                        'type': f'AI_{category.upper()}',
                         'p_fail': p_fail,
                         'message': message,
                         'assignment_id': commit.assignment_id
@@ -125,6 +147,7 @@ class SmartNudgeSystem:
             if nudges_to_send:
                 top_nudge = max(nudges_to_send, key=lambda x: x['p_fail'])
                 self._send_personalized_alert(
+                    session,
                     student_id, 
                     top_nudge['type'], 
                     top_nudge['message'], 

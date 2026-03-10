@@ -1,12 +1,14 @@
 import { WelcomeCard } from "../../components/WelcomeCard";
 import { QuickReminderCreation } from "../../components/QuickReminderCreation";
-import { ReminderStats } from "../../components/ReminderStats";
-import { TaskChecklist } from "../../components/TaskChecklist";
-import { CalendarPreview } from "../../components/CalendarPreview";
-import { GamificationPanel } from "../../components/GamificationPanel";
-import { AIRecommendation } from "../../components/AIRecommendation";
+// import { ReminderStats } from "../../components/ReminderStats";
+// import { TaskChecklist } from "../../components/TaskChecklist";
+// import { CalendarPreview } from "../../components/CalendarPreview";
+// import { GamificationPanel } from "../../components/GamificationPanel";
+// import { AIRecommendation } from "../../components/AIRecommendation";
+import { SuccessChart } from "../../components/SuccessChart";
 import { NudgesNotifications } from "../../components/NudgesNotifications";
 import type { Reminder } from "../../App";
+import StakesAtRiskCard from "@/components/StakesAtRiskCard";
 
 interface DashboardViewProps {
   reminders: Reminder[];
@@ -31,9 +33,18 @@ export function DashboardView({
 
       <QuickReminderCreation onAddReminder={addReminder} />
 
-      <NudgesNotifications />
+      <div className="flex flex-col xl:flex-row gap-5">
+        <div className="xl:flex-1 min-w-0">
+          <StakesAtRiskCard totalAtRiskPoints={50} activeCommitmentsCount={1} />
+        </div>
+        <div className="xl:flex-1 min-w-0">
+          <NudgesNotifications />
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <SuccessChart />
+
+      {/* <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <TaskChecklist
             reminders={reminders}
@@ -47,7 +58,7 @@ export function DashboardView({
           <GamificationPanel />
           <CalendarPreview />
         </div>
-      </div>
+      </div> */}
     </div>
   );
 }
