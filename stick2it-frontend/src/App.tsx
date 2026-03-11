@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar as LegacySidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { DashboardHeader } from "./components/DashboardHeader";
 import { DashboardView } from "./view/dashboard/DashboardView";
@@ -7,6 +7,9 @@ import { RemindersView } from "./view/dashboard/RemindersView";
 import { TodayView } from "./view/dashboard/TodayView";
 import { UpcomingView } from "./view/dashboard/UpcomingView";
 import { AISuggestionsView } from "./view/dashboard/AISuggestionsView";
+import { AuthLoginView } from "./view/auth/AuthLoginView";
+import { AuthSignupView } from "./view/auth/AuthSignupView";
+import { BuddyView } from "@/view/dashboard/BuddyView";
 
 export interface Reminder {
   id: number;
@@ -36,19 +39,34 @@ export interface Habit {
 
 export default function App() {
   const [activeSection, setActiveSection] = useState("dashboard");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState<string | null>(null);
+  const [currentStudent, setCurrentStudent] = useState<{
+    id: number;
+    name: string;
+    email: string;
+  } | null>(null);
 
-  // Example: Replace '1' with the actual logged-in student ID
-  const studentId = 1; 
   const API_BASE_URL = "http://localhost:5000/api/v1";
 
   useEffect(() => {
+    if (!isAuthenticated || !token || !currentStudent) return;
+
+    const studentId = currentStudent.id;
+
     const fetchDashboardData = async () => {
       try {
-        setLoading(true);
-        const response = await fetch(`${API_BASE_URL}/students/${studentId}/stats`);
+        const response = await fetch(
+          `${API_BASE_URL}/students/${studentId}/stats`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
         const data = await response.json();
         
         // Map backend data to your frontend Reminder interface
@@ -69,13 +87,11 @@ export default function App() {
         }
       } catch (error) {
         console.error("Failed to fetch data from backend:", error);
-      } finally {
-        setLoading(false);
       }
     };
 
     fetchDashboardData();
-  }, [studentId]);
+  }, [API_BASE_URL, isAuthenticated, token, currentStudent]);
 
   const toggleReminder = (id: number) => {
     setReminders(
@@ -106,11 +122,16 @@ export default function App() {
       type: "start_time" 
     };
 
+    if (!token) {
+      console.warn("Cannot create commitment without auth token");
+      return;
+    }
+
     const response = await fetch(`${API_BASE_URL}/commitments`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        // "Authorization": `Bearer ${token}` // Include if you have implemented the login flow
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(payload),
     });
@@ -142,6 +163,33 @@ export default function App() {
   };
 
   const renderContent = () => {
+    if (!isAuthenticated) {
+      if (authMode === "login") {
+        return (
+          <AuthLoginView
+            onLoginSuccess={({ token, student }) => {
+              setToken(token);
+              setCurrentStudent(student);
+              setIsAuthenticated(true);
+              setActiveSection("dashboard");
+            }}
+            onSwitchToSignup={() => setAuthMode("signup")}
+          />
+        );
+      }
+
+      return (
+        <AuthSignupView
+          onSignupSuccess={({ token, student }) => {
+            setToken(token);
+            setCurrentStudent(student);
+            setIsAuthenticated(true);
+            setActiveSection("dashboard");
+          }}
+          onSwitchToLogin={() => setAuthMode("login")}
+        />
+      );
+    }
     switch (activeSection) {
       case "dashboard":
         return (
@@ -167,6 +215,13 @@ export default function App() {
         return <UpcomingView reminders={reminders} />;
       case "ai":
         return <AISuggestionsView addReminder={addReminder} />;
+      case "buddy":
+        return (
+          <BuddyView
+            reminders={reminders}
+            studentName={currentStudent?.name}
+          />
+        );
       default:
         return (
           <DashboardView
@@ -180,24 +235,38 @@ export default function App() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-gradient-to-br from-indigo-600 via-indigo-500 to-purple-600">
-      <Sidebar
-        activeSection={activeSection}
-        onSectionChange={setActiveSection}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
+      {isAuthenticated && (
+        <LegacySidebar
+          activeSection={activeSection}
+          onSectionChange={setActiveSection}
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          onLogout={() => {
+            setIsAuthenticated(false);
+            setAuthMode("login");
+            setSidebarOpen(false);
+            setToken(null);
+            setCurrentStudent(null);
+            setReminders([]);
+          }}
+        />
+      )}
 
-      <div className="w-full lg:pl-64">
-        <div className="min-h-screen bg-white lg:rounded-tl-3xl">
-          {activeSection === "dashboard" ? (
-            <DashboardHeader onMenuClick={() => setSidebarOpen(true)} />
-          ) : (
-            <Header onMenuClick={() => setSidebarOpen(true)} />
-          )}
+      {isAuthenticated ? (
+        <div className="w-full lg:pl-64">
+          <div className="min-h-screen bg-white lg:rounded-tl-3xl">
+            {activeSection === "dashboard" ? (
+              <DashboardHeader onMenuClick={() => setSidebarOpen(true)} />
+            ) : (
+              <Header onMenuClick={() => setSidebarOpen(true)} />
+            )}
 
-          <main className="px-4 md:px-6 lg:px-8 ">{renderContent()}</main>
+            <main className="px-4 md:px-6 lg:px-8 ">{renderContent()}</main>
+          </div>
         </div>
-      </div>
+      ) : (
+        <main className="w-full">{renderContent()}</main>
+      )}
     </div>
   );
 }

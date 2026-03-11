@@ -1,10 +1,11 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from database_setup_content import LearningContent
+from backend.app.models import LearningContent
 
 engine = create_engine('sqlite:///procrastination.db')
 Session = sessionmaker(bind=engine)
 session = Session()
+
 
 # Add 16 sample learning items
 content = [

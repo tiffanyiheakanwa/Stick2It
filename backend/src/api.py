@@ -11,15 +11,13 @@ from flask_jwt_extended import (
 )
 from datetime import datetime, timedelta
 
-# =========================
-# Service Imports
-# =========================
-from predict import ProcrastinationPredictor
-from recommender import AdaptiveRecommender
-from progress import ProgressTracker
-from commitment_system import CommitmentSystem
-from nudge_system import SmartNudgeSystem
-from database_setup_content import Student, get_session
+from .predict import ProcrastinationPredictor
+from .recommender import AdaptiveRecommender
+from .progress import ProgressTracker
+from .commitment_system import CommitmentSystem
+from .nudge_system import SmartNudgeSystem
+from backend.app.models import Student
+from .database_setup_content import get_session
 
 # =========================
 # App Configuration
@@ -27,7 +25,7 @@ from database_setup_content import Student, get_session
 API_PREFIX = "/api/v1"
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["http://localhost:5173"])
 
 app.config["JWT_SECRET_KEY"] = "SUPER_SECRET_KEY_CHANGE_THIS"
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
@@ -281,7 +279,7 @@ def get_nudges(student_id):
 # =========================
 
 if __name__ == "__main__":
-    from scheduler import start_scheduler
+    from .scheduler import start_scheduler
 
     start_scheduler()   # ✅ start background jobs first
 

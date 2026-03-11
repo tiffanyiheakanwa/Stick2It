@@ -1,9 +1,9 @@
-from database_setup import (
+from .database_setup import (
     get_session, Student, StudentProgress,
     Commitment, StudentPoints, Task, TaskEvent
 )
-from logger import logger
-from utils import safe_execute
+from .logger import logger
+from .utils import safe_execute
 
 class PrivacyService:
     def __init__(self):

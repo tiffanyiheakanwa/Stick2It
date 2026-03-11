@@ -1,7 +1,7 @@
 import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from database_setup_content import Student, StudentBehavior, Base
+from backend.app.models import Student, StudentBehavior, Base
 
 def load_data():
     # Connect to database

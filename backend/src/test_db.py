@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
-from database_setup_content import Student, StudentBehavior
+from .database_setup_content import Student, StudentBehavior
 from sqlalchemy import Integer
 
 engine = create_engine('sqlite:///procrastination.db')

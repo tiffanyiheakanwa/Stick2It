@@ -6,11 +6,11 @@ Runs automated checks & nudges
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 import traceback
-from commitment_system import CommitmentSystem
-from nudge_system import SmartNudgeSystem
-from progress import ProgressTracker
-from utils import safe_execute
-from logger import logger
+from .commitment_system import CommitmentSystem
+from .nudge_system import SmartNudgeSystem
+from .progress import ProgressTracker
+from .utils import safe_execute
+from .logger import logger
 
 
 

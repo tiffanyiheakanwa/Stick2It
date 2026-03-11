@@ -1,8 +1,8 @@
 """Adaptive Learning Recommendation Engine"""
 from sqlalchemy import create_engine, and_
 from sqlalchemy.orm import sessionmaker
-from database_setup_content import LearningContent, StudentProgress
-from predict import ProcrastinationPredictor
+from backend.app.models import LearningContent, StudentProgress
+from .predict import ProcrastinationPredictor
 
 class AdaptiveRecommender:
     def __init__(self):

@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 # Import the Base and models from your app's central location
-from .models import Base 
+from backend.app.models import Base 
 
 # Configured for SQLite with thread safety for multi-threaded apps
 DB_URL = "sqlite:///procrastination.db"

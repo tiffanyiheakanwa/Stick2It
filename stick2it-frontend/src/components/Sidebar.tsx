@@ -7,15 +7,15 @@ import {
   Sparkles,
   LogOut,
   X,
+  HeartHandshake,
 } from "lucide-react";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
   { icon: CheckSquare, label: "My Reminders", id: "reminders" },
   { icon: Calendar, label: "Today", id: "today" },
-  // { icon: TrendingUp, label: "Upcoming", id: "upcoming" },
   { icon: Sparkles, label: "AI Suggestions", id: "ai" },
-  // { icon: Award, label: "Habits", id: "habits" },
+  { icon: HeartHandshake, label: "Buddy View", id: "buddy" },
 ];
 
 interface SidebarProps {
@@ -23,6 +23,7 @@ interface SidebarProps {
   onSectionChange: (section: string) => void;
   isOpen: boolean;
   onClose: () => void;
+  onLogout: () => void;
 }
 
 export function Sidebar({
@@ -30,6 +31,7 @@ export function Sidebar({
   onSectionChange,
   isOpen,
   onClose,
+  onLogout,
 }: SidebarProps) {
   const handleSectionChange = (section: string) => {
     onSectionChange(section);
@@ -86,7 +88,7 @@ export function Sidebar({
           </nav>
         </div>
 
-        <div className="mt-auto p-6 bg-indigo-500 rounded-xl m-4">
+          <div className="mt-auto p-6 bg-indigo-500 rounded-xl m-4">
           <div className="flex items-center gap-3 px-2 mb-4">
             <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-indigo-600">
               AS
@@ -96,7 +98,10 @@ export function Sidebar({
               <div className="text-indigo-200">Student</div>
             </div>
           </div>
-          <button className="w-full flex items-center gap-3 px-4 py-3 text-white hover:bg-indigo-500 rounded-lg transition-colors">
+          <button
+            onClick={onLogout}
+            className="w-full flex items-center gap-3 px-4 py-3 text-white hover:bg-indigo-500 rounded-lg transition-colors"
+          >
             <LogOut className="w-5 h-5" />
             <span>Log Out</span>
           </button>

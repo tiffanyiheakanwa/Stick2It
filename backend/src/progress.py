@@ -2,10 +2,10 @@
 
 from sqlalchemy import create_engine, and_
 from sqlalchemy.orm import sessionmaker
-from database_setup_content import StudentProgress
+from backend.app.models import StudentProgress
 from datetime import datetime
-from logger import logger
-from utils import safe_execute
+from .logger import logger
+from .utils import safe_execute
 
 class ProgressTracker:
     def __init__(self):
