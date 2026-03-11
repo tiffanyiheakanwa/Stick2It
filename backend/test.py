@@ -11,7 +11,6 @@ with get_db_session() as session:
         session.add(student)
         session.flush()
 
-    # 2. Ensure a test assignment exists
     assignment = session.query(Assignment).first()
     if not assignment:
         assignment = Assignment(
