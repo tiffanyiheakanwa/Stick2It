@@ -25,7 +25,13 @@ from .database_setup_content import get_session
 API_PREFIX = "/api/v1"
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173"])
+CORS(
+    app,
+    origins=["http://localhost:5173"],  # Only your frontend
+    supports_credentials=True,
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+)
 
 app.config["JWT_SECRET_KEY"] = "SUPER_SECRET_KEY_CHANGE_THIS"
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
@@ -57,6 +63,12 @@ def authorize_student(resource_student_id: int):
 # =========================
 # AUTH ROUTES
 # =========================
+
+@app.route("/test-cors", methods=["GET", "OPTIONS"])
+def test_cors():
+    return jsonify({"ok": True})
+    
+
 
 @app.route(f"{API_PREFIX}/auth/register", methods=["POST"])
 def register():
