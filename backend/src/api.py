@@ -17,7 +17,7 @@ from .progress import ProgressTracker
 from .commitment_system import CommitmentSystem
 from .nudge_system import SmartNudgeSystem
 from backend.app.models import Student
-from .database_setup_content import get_session
+from backend.app.database import get_db_session
 
 # =========================
 # App Configuration
@@ -72,42 +72,42 @@ def test_cors():
 
 @app.route(f"{API_PREFIX}/auth/register", methods=["POST"])
 def register():
-    session = get_session()
-    data = request.get_json()
+    with get_db_session() as session:
+        data = request.get_json()
 
-    email = data["email"].strip().lower()
-    if session.query(Student).filter_by(email=email).first():
-        return jsonify({"error": "Email already registered"}), 400
+        email = data["email"].strip().lower()
+        if session.query(Student).filter_by(email=email).first():
+            return jsonify({"error": "Email already registered"}), 400
 
-    student = Student(name=data["name"], email=email)
-    student.set_password(data["password"])
+        student = Student(name=data["name"], email=email)
+        student.set_password(data["password"])
 
-    session.add(student)
-    session.commit()
+        session.add(student)
+        session.commit()
 
-    return jsonify({"success": True, "student_id": student.id})
+        return jsonify({"success": True, "student_id": student.id})
 
 
 @app.route(f"{API_PREFIX}/auth/login", methods=["POST"])
 def login():
-    session = get_session()
-    data = request.get_json()
+    with get_db_session() as session:
+        data = request.get_json()
 
-    student = session.query(Student).filter_by(email=data["email"]).first()
-    if not student or not student.verify_password(data["password"]):
-        return jsonify({"error": "Invalid credentials"}), 401
+        student = session.query(Student).filter_by(email=data["email"]).first()
+        if not student or not student.verify_password(data["password"]):
+            return jsonify({"error": "Invalid credentials"}), 401
 
-    token = create_access_token(identity=student.id)
+        token = create_access_token(identity=student.id)
 
-    return jsonify({
-        "success": True,
-        "token": token,
-        "student": {
-            "id": student.id,
-            "name": student.name,
-            "email": student.email
-        }
-    })
+        return jsonify({
+            "success": True,
+            "token": token,
+            "student": {
+                "id": student.id,
+                "name": student.name,
+                "email": student.email
+            }
+        })
 
 @app.route(f"{API_PREFIX}/me", methods=["GET"])
 @jwt_required()
