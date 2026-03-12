@@ -55,7 +55,7 @@ except Exception as e:
 # AUTHORIZATION GUARD
 # =========================
 def authorize_student(resource_student_id: int):
-    current_user_id = get_jwt_identity()
+    current_user_id = int(get_jwt_identity())
     if current_user_id != resource_student_id:
         return jsonify({"error": "Unauthorized access"}), 403
     return None
@@ -97,7 +97,7 @@ def login():
         if not student or not student.verify_password(data["password"]):
             return jsonify({"error": "Invalid credentials"}), 401
 
-        token = create_access_token(identity=student.id)
+        token = create_access_token(identity=str(student.id))
 
         return jsonify({
             "success": True,
@@ -112,7 +112,7 @@ def login():
 @app.route(f"{API_PREFIX}/me", methods=["GET"])
 @jwt_required()
 def me():
-    return jsonify({"student_id": get_jwt_identity()})
+    return jsonify({"student_id": int(get_jwt_identity())})
 
 # =========================
 # HEALTH CHECK
@@ -170,7 +170,7 @@ def get_recommendations(student_id):
 @jwt_required()
 def start_content():
     data = request.get_json()
-    current_user_id = get_jwt_identity()
+    current_user_id = int(get_jwt_identity())
 
     return jsonify(
         progress_tracker.start_content(
@@ -184,7 +184,7 @@ def start_content():
 @jwt_required()
 def complete_content():
     data = request.get_json()
-    current_user_id = get_jwt_identity()
+    current_user_id = int(get_jwt_identity())
 
     result = progress_tracker.complete_content(
         current_user_id,
@@ -212,19 +212,31 @@ def get_progress(student_id):
 @app.route(f"{API_PREFIX}/commitments", methods=["POST"])
 @jwt_required()
 def create_commitment():
-    data = request.get_json()
-    current_user_id = get_jwt_identity()
+    try:
+        data = request.get_json()
+        current_user_id = get_jwt_identity()
 
-    commit_time = datetime.fromisoformat(data["committed_datetime"])
+        try:
+            commit_time = datetime.fromisoformat(data["committed_datetime"].replace('Z', '+00:00'))
+        except Exception:
+            return jsonify({"error": "Invalid date format"}), 400
 
-    return jsonify(
-        commitment_system.create_commitment(
-            student_id=current_user_id,
-            content_id=data["content_id"],
-            committed_datetime=commit_time,
-            commitment_type=data.get("type", "start_time")
+        return jsonify(
+            commitment_system.create_commitment(
+                student_id=current_user_id,
+                committed_datetime=commit_time,
+                title=data.get("title"),
+                buddy_name=data.get("buddy_name"),
+                buddy_email=data.get("buddy_email"),
+                stake_value=data.get("stake_value", 10),
+                content_id=data.get("content_id"),
+            )
         )
-    )
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 422
 
 
 @app.route(f"{API_PREFIX}/commitments/<int:commitment_id>/check", methods=["POST"])
@@ -250,7 +262,7 @@ def get_student_stats(student_id):
 @jwt_required()
 def add_partner():
     data = request.get_json()
-    current_user_id = get_jwt_identity()
+    current_user_id = int(get_jwt_identity())
 
     return jsonify(
         commitment_system.add_accountability_partner(

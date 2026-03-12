@@ -12,41 +12,41 @@ class CommitmentSystem:
         """
         pass
 
-    def create_commitment(self,  student_id, assignment_id, stake_type, stake_value, penalty_message, buddy_email, buddy_name):
+    def create_commitment(self, student_id, committed_datetime, title=None, 
+                      buddy_email=None, buddy_name=None, stake_value=10, 
+                      stake_type="Points", penalty_message=None, content_id=None):
         """
         Creates a high-stakes commitment linked to an assignment.
         Generates a unique verification token for the Accountability Partner.
         """
         logger.info(f"Creating {stake_type} commitment for student {student_id}")
         with get_db_session() as session:
-            # 1. Verify the assignment exists
-            assignment = session.query(Assignment).filter(Assignment.id == assignment_id).first()
-            if not assignment:
-                return {"success": False, "error": "Assignment not found"}
 
             # 2. Generate unique token for Buddy Verification Link
             verification_token = str(uuid.uuid4())
 
             # 3. Create the Commitment record
             new_commitment = Commitment(
-                assignment_id=assignment_id,
                 student_id=student_id,
+                content_id=content_id,
                 stake_type=stake_type,
                 stake_value=stake_value,
-                penalty_message=penalty_message,
+                penalty_message=penalty_message or f"Lose {stake_value} points if {title} is not completed by {committed_datetime}",
                 buddy_name=buddy_name,
                 buddy_email=buddy_email,
                 verification_token=verification_token,
+                committed_datetime=committed_datetime,
                 status="pending"
             )
 
             session.add(new_commitment)
             self._ensure_points_record(session, student_id)
-            session.flush() # Ensure ID is generated for the alert
-            
+            session.commit()
+            session.refresh(new_commitment) # Ensure ID is loaded
+
             # 4. Initialize points if this is a points-based stake
             if stake_type == "Points":
-                self._initialize_points_record(student_id)
+                self._initialize_points_record(session, student_id)
             
             # 5. Notify the partner immediately that the contract is locked
             self._send_initial_buddy_alert(new_commitment)
@@ -115,7 +115,7 @@ class CommitmentSystem:
 
     def _process_failure(self, session,  commitment):
         """Executes the penalty and notifies the partner of the failure."""
-        logger.warning(f"❌ Commitment {commitment.id} BROKEN. Executing penalties.")
+        logger.warning(f" Commitment {commitment.id} BROKEN. Executing penalties.")
         commitment.status = "broken"
         
         # Immediate Point Deduction and Streak Reset
@@ -125,6 +125,27 @@ class CommitmentSystem:
         self._notify_partner(commitment, result="broken")
         
         return {"success": True, "status": "broken", "penalty_executed": True}
+
+    def get_student_stats(self, student_id):
+        with get_db_session() as session:
+            commitments = session.query(Commitment).filter(
+                Commitment.student_id == student_id
+            ).order_by(Commitment.committed_datetime.desc()).all()
+            
+            return {
+                "success": True,
+                "commitments": [
+                    {
+                        "id": c.id,
+                        "status": c.status,
+                        "stake_value": c.stake_value,
+                        "stake_type": c.stake_type,
+                        "buddy_name": c.buddy_name,
+                        "penalty_message": c.penalty_message,
+                        "committed_datetime": c.committed_datetime.isoformat()
+                    } for c in commitments
+                ]
+            }
 
     def _update_student_stats(self, session, student_id, success, points_change=0):
         """
@@ -169,17 +190,18 @@ class CommitmentSystem:
         """Initial notification to buddy that a contract has been locked."""
         verification_url = f"http://stick2it.app/verify/{commitment.verification_token}"
         subject = f"Action Required: Accountability Partner for {commitment.buddy_name}"
-        body = f"Your friend committed to: {commitment.assignment.title}\nStake: {commitment.stake_type}\nPenalty: {commitment.penalty_message}\nVerify here: {verification_url}"
+        task_title = commitment.assignment.title if commitment.assignment else "a task"
+        body = f"Your friend committed to: {task_title}\nStake: {commitment.stake_type}\nPenalty: {commitment.penalty_message}\nVerify here: {verification_url}"
         self._send_email(commitment.buddy_email, subject, body)
 
     def _notify_partner(self, commitment, result):
         """Notifies partner of completion or failure."""
         student_name = commitment.student.name
         if result == 'broken':
-            subject = f"😢 {student_name} missed their commitment"
+            subject = f" {student_name} missed their commitment"
             body = f"Penalty Action Required: {commitment.penalty_message}"
         else:
-            subject = f"✅ {student_name} kept their commitment!"
+            subject = f" {student_name} kept their commitment!"
             body = f"They finished {commitment.assignment.title}. Great job!"
         self._send_email(commitment.buddy_email, subject, body)
 

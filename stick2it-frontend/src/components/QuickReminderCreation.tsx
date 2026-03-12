@@ -11,9 +11,12 @@ const quickActions = [
 
 interface QuickReminderCreationProps {
   onAddReminder: (title: string, time: string) => void;
+  value: string;
+  onChange: (value: string) => void;
+  onOpenModal: () => void;
 }
 
-export function QuickReminderCreation({ onAddReminder }: QuickReminderCreationProps) {
+export function QuickReminderCreation({ onAddReminder, value, onChange, onOpenModal }: QuickReminderCreationProps) {
   const [reminderText, setReminderText] = useState("");
 
   const handleAddReminder = () => {
@@ -42,14 +45,14 @@ export function QuickReminderCreation({ onAddReminder }: QuickReminderCreationPr
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-4">
           <input
             type="text"
-            placeholder="What do you need to remember?"
-            value={reminderText}
-            onChange={(e) => setReminderText(e.target.value)}
+            placeholder="What are you commiting to?"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
             onKeyPress={handleKeyPress}
             className="flex-1 px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <Button 
-            onClick={handleAddReminder}
+            onClick={onOpenModal}
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 w-full sm:w-auto"
           >
             <Plus className="w-5 h-5 mr-2" />

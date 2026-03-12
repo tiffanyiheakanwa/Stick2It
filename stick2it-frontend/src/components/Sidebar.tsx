@@ -2,8 +2,6 @@ import {
   LayoutDashboard,
   CheckSquare,
   Calendar,
-  TrendingUp,
-  Award,
   Sparkles,
   LogOut,
   X,
@@ -21,6 +19,11 @@ const navItems = [
 interface SidebarProps {
   activeSection: string;
   onSectionChange: (section: string) => void;
+  currentStudent: {
+    id: number;
+    name: string;
+    email: string;
+  } | null;
   isOpen: boolean;
   onClose: () => void;
   onLogout: () => void;
@@ -29,6 +32,7 @@ interface SidebarProps {
 export function Sidebar({
   activeSection,
   onSectionChange,
+  currentStudent,
   isOpen,
   onClose,
   onLogout,
@@ -36,6 +40,15 @@ export function Sidebar({
   const handleSectionChange = (section: string) => {
     onSectionChange(section);
     onClose(); // Close sidebar on mobile after selection
+  };
+
+  const getInitials = (name: string) => {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
   };
 
   return (
@@ -91,10 +104,10 @@ export function Sidebar({
           <div className="mt-auto p-6 bg-indigo-500 rounded-xl m-4">
           <div className="flex items-center gap-3 px-2 mb-4">
             <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-indigo-600">
-              AS
+              {currentStudent?.name ? getInitials(currentStudent.name) : "ST"}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-white truncate">Alex Smith</div>
+              <div className="text-white truncate">{currentStudent?.name || "Student"}</div>
               <div className="text-indigo-200">Student</div>
             </div>
           </div>

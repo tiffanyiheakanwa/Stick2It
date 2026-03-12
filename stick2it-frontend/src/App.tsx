@@ -41,9 +41,9 @@ export default function App() {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [token, setToken] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [token, setToken] = useState<string | null>(null);
   const [currentStudent, setCurrentStudent] = useState<{
     id: number;
     name: string;
@@ -103,9 +103,9 @@ export default function App() {
     );
   };
 
-  const deleteReminder = (id: number) => {
-    setReminders(reminders.filter((reminder) => reminder.id !== id));
-  };
+  // const deleteReminder = (id: number) => {
+  //   setReminders(reminders.filter((reminder) => reminder.id !== id));
+  // };
 
   const addReminder = async(
     title: string,
@@ -195,16 +195,17 @@ export default function App() {
         return (
           <DashboardView
             reminders={reminders}
-            toggleReminder={toggleReminder}
             addReminder={addReminder}
+            token={token || ""}
+            studentId={currentStudent?.id || 1}
+            studentName={currentStudent?.name || ""}
           />
         );
       case "reminders":
         return (
           <RemindersView
-            reminders={reminders}
-            toggleReminder={toggleReminder}
-            deleteReminder={deleteReminder}
+            token={token || ""}
+            studentId={currentStudent?.id || 1}
           />
         );
       case "today":
@@ -226,8 +227,10 @@ export default function App() {
         return (
           <DashboardView
             reminders={reminders}
-            toggleReminder={toggleReminder}
             addReminder={addReminder}
+            token={token || ""}
+            studentId={currentStudent?.id || 1}
+            studentName={currentStudent?.name || ""}
           />
         );
     }
@@ -239,6 +242,7 @@ export default function App() {
         <LegacySidebar
           activeSection={activeSection}
           onSectionChange={setActiveSection}
+          currentStudent={currentStudent}
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
           onLogout={() => {
