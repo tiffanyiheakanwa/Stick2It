@@ -16,7 +16,7 @@ from .recommender import AdaptiveRecommender
 from .progress import ProgressTracker
 from .commitment_system import CommitmentSystem
 from .nudge_system import SmartNudgeSystem
-from backend.app.models import Student, Notification
+from backend.app.models import Student, Commitment, Notification
 from backend.app.database import get_db_session
 
 # =========================
@@ -234,7 +234,7 @@ def create_commitment():
             commitment_system.create_commitment(
                 student_id=current_user_id,
                 committed_datetime=commit_time,
-                title=data.get("title"),
+                custom_title=data.get("title"),
                 buddy_name=data.get("buddy_name"),
                 buddy_email=data.get("buddy_email"),
                 stake_value=data.get("stake_value", 10),
@@ -262,6 +262,43 @@ def get_student_stats(student_id):
         return auth
 
     return jsonify(commitment_system.get_student_stats(student_id))
+
+# =========================
+# BUDDY COMMITMENTS
+# =========================
+@app.route(f"{API_PREFIX}/buddy/commitments", methods=["GET"])
+@jwt_required()
+def get_buddy_commitments():
+    with get_db_session() as session:
+        current_user_id = int(get_jwt_identity())
+        student = session.query(Student).get(current_user_id)
+        
+        # Find all commitments where the current student's email is the buddy_email
+        from backend.app.models import Commitment, Prediction
+        commitments = session.query(Commitment).filter_by(
+            buddy_email=student.email,
+            status='pending'
+        ).all()
+
+        results = []
+        for c in commitments:
+            # Join with Prediction to get the latest risk score
+            prediction = session.query(Prediction).filter_by(
+                assignment_id=c.content_id # Or the relevant link ID
+            ).order_by(Prediction.predicted_at.desc()).first()
+            
+            results.append({
+                "id": c.id,
+                "owner_name": c.student.name,
+                "title": c.custom_title or (c.assignment.title if c.assignment else "Custom Task"),
+                "deadline": c.committed_datetime.isoformat(),
+                "stake": c.stake_value,
+                "risk_score": round(prediction.risk_score * 100, 1) if prediction else "N/A",
+                "verification_token": c.verification_token
+            })
+            
+        return jsonify({"success": True, "commitments": results})
+
 
 # =========================
 # ACCOUNTABILITY PARTNER
@@ -379,6 +416,7 @@ def respond_to_request(notif_id):
 
         session.commit()
         return jsonify({"success": True})
+
 @app.route(f"{API_PREFIX}/notifications", methods=["GET"])
 @jwt_required()
 def get_notifications():
@@ -408,6 +446,26 @@ def get_notifications():
             "success": True, 
             "notifications": notifications_list
         })
+
+# =========================
+# VERIFICATION
+# =========================
+@app.route(f"{API_PREFIX}/verify/<string:token>/<string:action>", methods=["POST"])
+def verify_commitment(token, action):
+    with get_db_session() as session:
+        commitment = session.query(Commitment).filter_by(verification_token=token).first()
+        if not commitment:
+            return jsonify({"error": "Invalid token"}), 404
+            
+        if action == "kept":
+            commitment.status = "completed"
+            commitment.is_verified_by_buddy = True
+        elif action == "broken":
+            commitment.status = "failed"
+            
+        session.commit()
+        return jsonify({"success": True})
+
 # =========================
 # ENTRY POINT
 # =========================

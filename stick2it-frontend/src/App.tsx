@@ -220,8 +220,7 @@ export default function App() {
       case "buddy":
         return (
           <BuddyView
-            reminders={reminders}
-            studentName={currentStudent?.name}
+          token={token || ""}
           />
         );
       default:

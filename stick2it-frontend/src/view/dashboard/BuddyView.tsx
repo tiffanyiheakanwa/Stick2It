@@ -1,83 +1,83 @@
+// stick2it-frontend/src/view/dashboard/BuddyView.tsx
+
+import * as React from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, HeartHandshake } from "lucide-react";
-import type { Reminder } from "@/App";
+import { AlertCircle, CheckCircle2, XCircle } from "lucide-react";
 
-interface BuddyViewProps {
-  reminders: Reminder[];
-  studentName?: string;
-}
+export function BuddyView({ token }: { token: string }) {
+  const [commitments, setCommitments] = useState<any[]>([]);
 
-export function BuddyView({ reminders, studentName }: BuddyViewProps) {
-  const atRisk = reminders.filter(
-    (r) => !r.completed && r.status === "pending" && (r.stakeValue ?? 0) > 0
-  );
+  const fetchBuddyTasks = async () => {
+    const res = await fetch("http://localhost:5000/api/v1/buddy/commitments", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (data.success) setCommitments(data.commitments);
+  };
+
+  useEffect(() => { fetchBuddyTasks(); }, [token]);
+
+  const handleVerify = async (vToken: string, action: 'kept' | 'broken') => {
+    // Calls the endpoint defined in your main.py
+    const res = await fetch(`http://localhost:5000/api/v1/verify/${vToken}/${action}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    if (res.ok) fetchBuddyTasks(); // Refresh list
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h2 className="text-gray-900 flex items-center gap-2">
-            <HeartHandshake className="w-5 h-5 text-pink-500" />
-            Accountability Buddy
-          </h2>
-          <p className="text-sm text-gray-500">
-            You&apos;re keeping{" "}
-            <span className="font-medium">
-              {studentName || "your friend"}
-            </span>{" "}
-            on track. These are their current at-risk commitments.
-          </p>
-        </div>
-      </div>
-
+    <div className="p-6 space-y-6">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <AlertTriangle className="w-4 h-4 text-red-500" />
-              At-Risk Tasks
-            </CardTitle>
-          </div>
-          <Badge variant="outline" className="text-xs">
-            {atRisk.length} at risk
-          </Badge>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertCircle className="text-indigo-600" />
+            Commitments You're Supervising
+          </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {atRisk.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No at-risk commitments right now. Great job—you can relax for a
-              bit.
-            </p>
-          ) : (
-            atRisk.map((task) => (
-              <div
-                key={task.id}
-                className="flex items-start justify-between gap-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <p className="font-medium text-sm text-gray-900 truncate">
-                    {task.title}
-                  </p>
-                  <p className="text-xs text-gray-600">
-                    Stake:{" "}
-                    <span className="font-semibold">
-                      {task.stakeValue ?? 0} {task.stakeType || "points"}
-                    </span>
-                    {task.buddyName && (
-                      <> · Buddy: {task.buddyName}</>
-                    )}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Status: <span className="font-medium">{task.status}</span>
-                  </p>
-                </div>
-              </div>
-            ))
-          )}
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Student</TableHead>
+                <TableHead>Task</TableHead>
+                <TableHead>Risk Level</TableHead>
+                <TableHead>Stake</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {commitments.map((c) => (
+                <TableRow key={c.id}>
+                  <TableCell className="font-medium">{c.owner_name}</TableCell>
+                  <TableCell>{c.title}</TableCell>
+                  <TableCell>
+                    <Badge variant={parseFloat(c.risk_score) > 70 ? "destructive" : "secondary"}>
+                      {c.risk_score}% Risk
+                    </Badge>
+                  </TableCell>
+                  <TableCell>${c.stake}</TableCell>
+                  <TableCell className="text-right flex justify-end gap-2">
+                    <Button size="sm" variant="outline" className="text-green-600" onClick={() => handleVerify(c.verification_token, 'kept')}>
+                      <CheckCircle2 className="w-4 h-4 mr-1" /> Kept
+                    </Button>
+                    <Button size="sm" variant="outline" className="text-red-600" onClick={() => handleVerify(c.verification_token, 'broken')}>
+                      <XCircle className="w-4 h-4 mr-1" /> Broken
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>
   );
 }
-

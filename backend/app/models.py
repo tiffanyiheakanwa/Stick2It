@@ -81,6 +81,7 @@ class Commitment(Base):
     student_id = Column(Integer, ForeignKey("students.id")) # Explicit link for easy queries
     assignment_id = Column(Integer, ForeignKey("assignments.id"))
     content_id = Column(Integer, ForeignKey("learning_content.id"), nullable=True) # Linked to adaptive content
+    custom_title = Column(String(200), nullable=True)
 
     stake_type = Column(String(50)) # 'Financial', 'Social', 'Points'
     stake_value = Column(Integer, default=10)
@@ -168,14 +169,12 @@ class Notification(Base):
     sender = relationship("Student", foreign_keys=[sender_id])
     
 class Prediction(Base):
-
-    """Historical log for Phase 4 evaluation"""
     __tablename__ = "predictions"
-
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("students.id"))
     assignment_id = Column(Integer, ForeignKey("assignments.id"))
+    student_id = Column(Integer, ForeignKey("students.id"))
     risk_score = Column(Float)
-    predicted_at = Column(DateTime, default=datetime.utcnow)
+    reason = Column(String(255))
+    predicted_at = Column(DateTime, server_default=func.now())
 
     student = relationship("Student", back_populates="predictions")

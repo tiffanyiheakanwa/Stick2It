@@ -12,9 +12,10 @@ class CommitmentSystem:
         """
         pass
 
-    def create_commitment(self, student_id, committed_datetime, title=None, 
+    def create_commitment(self, student_id, committed_datetime, custom_title=None, 
                       buddy_email=None, buddy_name=None, stake_value=10, 
-                      stake_type="Points", penalty_message=None, content_id=None):
+                      stake_type="Points",
+                     penalty_message=None, content_id=None):
         """
         Creates a high-stakes commitment linked to an assignment.
         Generates a unique verification token for the Accountability Partner.
@@ -30,8 +31,9 @@ class CommitmentSystem:
                 student_id=student_id,
                 content_id=content_id,
                 stake_type=stake_type,
+                custom_title=custom_title, 
                 stake_value=stake_value,
-                penalty_message=penalty_message or f"Lose {stake_value} points if {title} is not completed by {committed_datetime}",
+                penalty_message=penalty_message or f"Lose {stake_value} points if {custom_title} is not completed by {committed_datetime}",
                 buddy_name=buddy_name,
                 buddy_email=buddy_email,
                 verification_token=verification_token,

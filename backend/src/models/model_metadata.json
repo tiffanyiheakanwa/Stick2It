@@ -3,7 +3,7 @@
     "accuracy": 0.838255115794633,
     "precision": 0.9715783664459161,
     "recall": 0.7431405656395104,
-    "f1_score": 0.8421430279837359,
+    "f1_score": 0.842143027983736,
     "roc_auc": 0.9099554302475729,
     "n_estimators": 100,
     "training_samples": 32640,
@@ -17,5 +17,5 @@
         "completion_rate",
         "activity_span"
     ],
-    "trained_date": "2025-12-10 13:31:50"
+    "trained_date": "2026-03-12 14:11:06"
 }
