@@ -6,7 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar, HeartHandshake, ShieldAlert } from "lucide-react";
+import { Calendar, ShieldAlert } from "lucide-react";
+
+interface Partner {
+  id: number;
+  name: string;
+  email: string;
+}
 
 interface CommitmentModalProps {
   isOpen: boolean;
@@ -17,60 +23,62 @@ interface CommitmentModalProps {
 
 export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, token }: CommitmentModalProps) {
   const [loading, setLoading] = useState(false);
+  const [partners, setPartners] = useState<Partner[]>([]);
   const [formData, setFormData] = useState({
     title: initialTitle,
     date: "",
-    buddyName: "",
-    buddyEmail: "",
+    buddyId: "",
     stakeValue: "10"
   });
 
   useEffect(() => {
-    if (isOpen) setFormData(prev => ({ ...prev, title: initialTitle }));  }, [isOpen, initialTitle]);
+    const fetchPartners = async () => {
+      try {
+        const response = await fetch("http://localhost:5000/api/v1/partners", {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.success) setPartners(data.partners);
+      } catch (err) {
+        console.error("Failed to fetch partners", err);
+      }
+    };
+
+    if (isOpen) {
+      setFormData(prev => ({ ...prev, title: initialTitle }));
+      fetchPartners();
+    }
+  }, [isOpen, initialTitle, token]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const selectedPartner = partners.find(p => p.id.toString() === formData.buddyId);
 
-    if (!formData.title || !formData.date || !formData.buddyName) {
-      console.error("Missing required fields!");
+    if (!formData.title || !formData.date || !selectedPartner) {
       return;
     }
 
     setLoading(true);
     
     try {
-      const payload = {
-        title: formData.title,
-        committed_datetime: new Date(formData.date).toISOString(),
-        buddy_name: formData.buddyName,
-        buddy_email: formData.buddyEmail,
-        stake_value: parseInt(formData.stakeValue),
-      };
-      console.log("Sending Payload:", payload);
-
       const response = await fetch("http://localhost:5000/api/v1/commitments", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}` // Use the JWT token from your auth state
+          "Authorization": `Bearer ${token}`
         },
         body: JSON.stringify({
-          student_id: "2",
           title: formData.title,
-          committed_datetime: new Date(formData.date).toISOString(), // Format for backend
-          buddy_name: formData.buddyName,
-          buddy_email: formData.buddyEmail,
+          committed_datetime: new Date(formData.date).toISOString(),
+          buddy_name: selectedPartner.name,
+          buddy_email: selectedPartner.email,
           stake_value: parseInt(formData.stakeValue),
-          content_id: null // Set to null if not linked to specific learning content
+          content_id: null 
         }),
       });
 
       if (response.ok) {
         onOpenChange(false);
-        // Add a success toast notification here if available
-      } else {
-        const err = await response.json();
-        console.error("Failed to create commitment:", err);
       }
     } catch (err) {
       console.error("Network error:", err);
@@ -110,24 +118,25 @@ export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, toke
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="buddy_email" className="text-gray-600">Buddy Email</Label>
-            <Input 
-              id="buddy_email" 
-              value={formData.buddyEmail} 
-              onChange={(e) => setFormData(prev => ({ ...prev, buddyEmail: e.target.value }))} 
-              required 
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            {/* Buddy Selection */}
+          <div className="grid grid-cols-1 gap-4">
+            {/* 2. Buddy Selection Dropdown */}
             <div className="space-y-2">
-              <Label htmlFor="buddy" className="text-gray-600">Buddy</Label>
-              <div className="relative">
-                <HeartHandshake className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                <Input id="buddy" placeholder="Buddy name" value={formData.buddyName} onChange={(e) => setFormData(prev => ({ ...prev, buddyName: e.target.value }))} className="pl-10 rounded-lg" required />
-              </div>
+              <Label htmlFor="buddy" className="text-gray-600">Select Buddy</Label>
+              <Select 
+                value={formData.buddyId} 
+                onValueChange={(value) => setFormData(prev => ({ ...prev, buddyId: value }))}
+              >
+                <SelectTrigger className="rounded-lg h-11">
+                  <SelectValue placeholder={partners.length > 0 ? "Choose a buddy" : "Add buddies first"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {partners.map((partner) => (
+                    <SelectItem key={partner.id} value={partner.id.toString()}>
+                      {partner.name} ({partner.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Stake Selection */}

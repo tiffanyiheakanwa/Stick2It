@@ -261,7 +261,7 @@ export default function App() {
         <div className="w-full lg:pl-64">
           <div className="min-h-screen bg-white lg:rounded-tl-3xl">
             {activeSection === "dashboard" ? (
-              <DashboardHeader onMenuClick={() => setSidebarOpen(true)} />
+              <DashboardHeader onMenuClick={() => setSidebarOpen(true)} token={token || ""} />
             ) : activeSection === "buddy" ? (
               <BuddyHeader onMenuClick={() => setSidebarOpen(true)} token={token || ""}/>
             ) : (

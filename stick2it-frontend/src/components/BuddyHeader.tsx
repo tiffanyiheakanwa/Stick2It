@@ -1,9 +1,10 @@
 import { AddBuddyModal } from "./modal/AddBuddyModal";
 import { useState, useEffect } from "react";
-import { Bell, Flame, Search, Mail, Menu, UserPlus, Check, X, PlusCircle } from "lucide-react";
+import { Bell, Search, Mail, Menu, UserPlus, Check, X, PlusCircle } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+
 interface HeaderProps {
   onMenuClick: () => void;
   token:string;
@@ -11,6 +12,40 @@ interface HeaderProps {
 
 export function BuddyHeader({ onMenuClick, token }: HeaderProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const unreadCount = notifications.filter(n => n.status === 'unread').length;
+
+  const fetchNotifications = async () => {
+    try {
+      const response = await fetch("http://localhost:5000/api/v1/notifications", {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success) setNotifications(data.notifications);
+    } catch (err) {
+      console.error("Failed to fetch notifications");
+    }
+  };
+
+  useEffect(() => {
+    if (token) fetchNotifications();
+  }, [token]);
+
+  const handleRespond = async (id: number, action: 'accept' | 'refuse') => {
+    try {
+      const response = await fetch(`http://localhost:5000/api/v1/notifications/${id}/respond`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`, 
+          'Content-Type': 'application/json' 
+        },
+        body: JSON.stringify({ action })
+      });
+      if (response.ok) fetchNotifications();
+    } catch (err) {
+      console.error("Error responding to request");
+    }
+  };
 
   return (
     <header className="bg-white px-4 md:px-8 py-4">
