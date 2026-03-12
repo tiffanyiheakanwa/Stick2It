@@ -10,6 +10,7 @@ import os
 from datetime import datetime
 from backend.app.database import get_db_session
 from backend.app.models import StudentBehavior, Student
+from backend.app.models import Prediction, Commitment 
 
 class ProcrastinationPredictor:
     """Class to handle procrastination risk predictions"""
@@ -91,37 +92,64 @@ class ProcrastinationPredictor:
 
             return self.predict_risk(features)
 
+    def update_all_commitment_risks(self):
+        with get_db_session() as session:
+            # 1. Get all commitments that are still pending
+            commitments = session.query(Commitment).filter_by(status='pending').all()
+            
+            for c in commitments:
+                # 2. Predict risk using the task title/custom title
+                task_text = c.custom_title or (c.assignment.title if c.assignment else "Task")
+                prediction_result = self.predict_from_task(task_text)
+                
+                # 3. Save to the predictions table
+                new_pred = Prediction(
+                    student_id=c.student_id,
+                    assignment_id=c.assignment_id, # Can be None for custom tasks
+                    risk_score=prediction_result['probability_high_risk'],
+                    predicted_at=datetime.utcnow()
+                )
+                session.add(new_pred)
+                print(f" Saved {prediction_result['risk_score']}% risk for: {task_text}")
+                
+            session.commit()
     # -----------------------------
     # NEW: Task-based prediction
     # -----------------------------
-    def predict_from_task(self, task_description: str, user_features=None):
-        """
-        Predict procrastination risk for a single task
-        """
-
+    def predict_from_task(self, task_description: str, student_id:int=None):
         now = datetime.utcnow()
         features_dict = {
             'task_length': len(task_description.split()),
             'hour_of_day': now.hour,
-            'day_of_week': now.weekday()
+            'day_of_week': now.weekday(),
+            'complexity_words': sum(1 for word in ['essay', 'project', 'exam'] if word in task_description.lower())
         }
 
-        # Keyword complexity (count of 'hard' words)
-        keywords = ['essay', 'report', 'project', 'analysis', 'presentation', 'coding', 'design', 'study']
-        features_dict['complexity_words'] = sum(1 for word in keywords if re.search(r'\b' + word + r'\b', task_description.lower()))
-
-        # Estimated duration (simple heuristic: words / 100)
-        features_dict['estimated_duration'] = features_dict['task_length'] / 100.0  # e.g., 1 unit ~ 100 words
-
-        # Merge past user behavior if provided
-        if user_features:
-            features_dict.update(user_features)
-
-        # Fill missing model features with zeros
-        for feat in self.feature_names:
-            if feat not in features_dict:
-                features_dict[feat] = 0.0
-
+        # IMPORTANT: Fetch real student history if available
+        if student_id:
+            with get_db_session() as session:
+                behavior = session.query(StudentBehavior).filter_by(student_id=student_id).first()
+                if behavior:
+                    features_dict.update({
+                        'last_minute_ratio': behavior.last_minute_ratio or 0.5,
+                'completion_rate': behavior.completion_rate or 0.5,
+                'engagement_intensity': behavior.engagement_intensity or 10.0,
+                'deadline_pressure': behavior.deadline_pressure or 0.0,
+                'login_consistency': behavior.login_consistency or 0.0,
+                'early_starter': behavior.early_starter or 0,
+                'activity_span': behavior.activity_span or 0.0
+                    })
+                else:
+                    # Fallback for new students with no history
+                    features_dict.update({
+                        'last_minute_ratio': 0.3, 
+                        'completion_rate': 0.7,
+                        'engagement_intensity': 5.0,
+                        'deadline_pressure': 1.0,
+                        'login_consistency': 0.8,
+                        'early_starter': 1,
+                        'activity_span': 10.0
+                    })
         return self.predict_risk(features_dict)
 
 # -----------------------------
@@ -129,37 +157,7 @@ class ProcrastinationPredictor:
 # -----------------------------
 if __name__ == "__main__":
     predictor = ProcrastinationPredictor()
-
-    # Example: task-based prediction
-    task_desc = "Write a 2000-word essay on climate change analysis and submit by Friday"
-    task_result = predictor.predict_from_task(task_desc)
-    print("\n📊 Task Prediction Result:")
-    print(f"  Risk Category: {task_result['risk_category'].upper()}")
-    print(f"  Risk Score: {task_result['risk_score']}/100")
-    print(f"  Probability: {task_result['probability_high_risk']*100:.1f}% high-risk")
-
-    # Example 1: Predict from feature dictionary
-    example_features = {
-        'last_minute_ratio': 0.6,
-        'engagement_intensity': 15.5,
-        'deadline_pressure': 2.5,
-        'login_consistency': 1.2,
-        'early_starter': 0,
-        'completion_rate': 0.4,
-        'activity_span': 45.0
-    }
     
-    result = predictor.predict_risk(example_features)
-    print("\n📊 Prediction Result:")
-    print(f"  Risk Category: {result['risk_category'].upper()}")
-    print(f"  Risk Score: {result['risk_score']}/100")
-    print(f"  Probability: {result['probability_high_risk']*100:.1f}% high-risk")
-    
-    # Example 2: Predict from database
-    try:
-        db_result = predictor.predict_from_database(student_id=11391)
-        print("\n📊 Database Prediction:")
-        print(f"  Risk Category: {db_result['risk_category'].upper()}")
-        print(f"  Risk Score: {db_result['risk_score']}/100")
-    except Exception as e:
-        print(f"  Error: {e}")
+    print(" Starting risk updates for all pending commitments...")
+    predictor.update_all_commitment_risks()
+    print(" Finished updating database.")

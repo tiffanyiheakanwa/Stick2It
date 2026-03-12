@@ -18,10 +18,12 @@ from .commitment_system import CommitmentSystem
 from .nudge_system import SmartNudgeSystem
 from backend.app.models import Student, Commitment, Notification
 from backend.app.database import get_db_session
+from backend.src.predict import ProcrastinationPredictor
 
 # =========================
 # App Configuration
 # =========================
+
 API_PREFIX = "/api/v1"
 
 app = Flask(__name__)
@@ -37,6 +39,8 @@ app.config["JWT_SECRET_KEY"] = "SUPER_SECRET_KEY_CHANGE_THIS"
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
 
 jwt = JWTManager(app)
+
+predictor = ProcrastinationPredictor()
 
 # =========================
 # Initialize Core Systems (ONCE)
@@ -230,29 +234,41 @@ def create_commitment():
         except Exception:
             return jsonify({"error": "Invalid date format"}), 400
 
-        return jsonify(
-            commitment_system.create_commitment(
-                student_id=current_user_id,
-                committed_datetime=commit_time,
-                custom_title=data.get("title"),
-                buddy_name=data.get("buddy_name"),
-                buddy_email=data.get("buddy_email"),
-                stake_value=data.get("stake_value", 10),
-                content_id=data.get("content_id"),
-            )
+        commitment = commitment_system.create_commitment(
+            student_id=current_user_id,
+            committed_datetime=commit_time,
+            custom_title=data.get("title"),
+            buddy_name=data.get("buddy_name"),
+            buddy_email=data.get("buddy_email"),
+            stake_value=data.get("stake_value", 10),
+            content_id=data.get("content_id"),
         )
+        
+        c_id = commitment.get("id") if isinstance(commitment, dict) else commitment.id
+
+        # 3. AUTOMATION: Generate risk prediction immediately
+        task_text = data.get('title') or "New Task"
+        prediction_result = predictor.predict_from_task(task_text, student_id=current_user_id)
+
+        # 4. Save the prediction to the database
+        from backend.app.models import Prediction
+        with get_db_session() as session:
+            new_pred = Prediction(
+                student_id=current_user_id,
+                assignment_id=data.get('assignment_id'),
+                risk_score=prediction_result['probability_high_risk'],
+                # Link it to the custom title if needed, or just the student
+                predicted_at=datetime.utcnow()
+            )
+            session.add(new_pred)
+            session.commit()
+
+        return jsonify({"success": True, "id": c_id})
 
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 422
-
-
-@app.route(f"{API_PREFIX}/commitments/<int:commitment_id>/check", methods=["POST"])
-@jwt_required()
-def check_commitment(commitment_id):
-    return jsonify(commitment_system.check_commitment(commitment_id))
-
 
 @app.route(f"{API_PREFIX}/students/<int:student_id>/stats", methods=["GET"])
 @jwt_required()
@@ -352,6 +368,7 @@ def get_partners():
 # NUDGES
 # =========================
 
+
 @app.route(f"{API_PREFIX}/students/<int:student_id>/nudges", methods=["GET"])
 @jwt_required()
 def get_nudges(student_id):
@@ -362,15 +379,46 @@ def get_nudges(student_id):
     context = request.args.get("context", "dashboard")
 
     if context == "all":
-        nudges = nudge_system.check_and_send_nudges(student_id)
+        standard_nudges = nudge_system.check_and_send_nudges(student_id)
     else:
         nudge = nudge_system.get_personalized_nudge(student_id, context)
-        nudges = [nudge] if nudge else []
+        standard_nudges = [nudge] if nudge else []
+
+    with get_db_session() as session:
+        from backend.app.models import Commitment, Prediction
+        
+        # Look for pending commitments for this student
+        commitments = session.query(Commitment).filter_by(
+            student_id=student_id, 
+            status='pending'
+        ).all()
+        
+        ai_risk_nudges = []
+        for c in commitments:
+            # Fetch the latest AI prediction for this specific task
+            pred = session.query(Prediction).filter_by(
+                student_id=student_id,
+                assignment_id=c.assignment_id
+            ).order_by(Prediction.predicted_at.desc()).first()
+            
+            if pred and pred.risk_score > 0.6: # If risk is > 60%
+                ai_risk_nudges.append({
+                    "id": f"ai-risk-{c.id}",
+                    "type": "AI_DYNAMIC_RISK",
+                    "p_fail": pred.risk_score, 
+                    "message": f"High risk detected! You're likely to procrastinate on '{c.custom_title or 'your task'}'.",
+                    "stakeValue": c.stake_value,
+                    "stakeType": c.stake_type,
+                    "buddyName": c.buddy_name
+                })
+
+    # 3. Combine them!
+    combined_nudges = ai_risk_nudges + standard_nudges
 
     return jsonify({
         "success": True,
-        "nudges": nudges,
-        "count": len(nudges)
+        "nudges": combined_nudges,
+        "count": len(combined_nudges)
     })
 
 # =========================
