@@ -16,7 +16,7 @@ from .recommender import AdaptiveRecommender
 from .progress import ProgressTracker
 from .commitment_system import CommitmentSystem
 from .nudge_system import SmartNudgeSystem
-from backend.app.models import Student
+from backend.app.models import Student, Notification
 from backend.app.database import get_db_session
 
 # =========================
@@ -27,7 +27,7 @@ API_PREFIX = "/api/v1"
 app = Flask(__name__)
 CORS(
     app,
-    origins=["http://localhost:5173"],  # Only your frontend
+    resources={r"/api/*": {"origins": "http://localhost:5173"}},    
     supports_credentials=True,
     allow_headers=["Content-Type", "Authorization"],
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
@@ -50,6 +50,15 @@ try:
     print("✅ Core systems loaded successfully")
 except Exception as e:
     raise RuntimeError(f"Startup failure: {e}")
+
+@app.before_request
+def handle_preflight():
+    # Preflight requests do not carry JWT tokens. 
+    # If this isn't handled, @jwt_required will block them with a 401.
+    if request.method == "OPTIONS":
+        res = jsonify({"status": "ok"})
+        res.status_code = 200
+        return res
 
 # =========================
 # AUTHORIZATION GUARD
@@ -261,17 +270,46 @@ def get_student_stats(student_id):
 @app.route(f"{API_PREFIX}/partners", methods=["POST"])
 @jwt_required()
 def add_partner():
-    data = request.get_json()
-    current_user_id = int(get_jwt_identity())
+    with get_db_session() as session:
+        data = request.get_json()
+        sender_id = int(get_jwt_identity())
+        partner_email = data.get("partner_email", "").strip().lower()
 
-    return jsonify(
-        commitment_system.add_accountability_partner(
-            student_id=current_user_id,
-            partner_name=data["partner_name"],
-            partner_email=data.get("partner_email"),
-            partner_phone=data.get("partner_phone")
+        # 1. Verify the partner exists
+        partner = session.query(Student).filter_by(email=partner_email).first()
+        if not partner:
+            return jsonify({"error": "User not found. They must register first."}), 404
+        
+        if partner.id == sender_id:
+            return jsonify({"error": "You cannot add yourself."}), 400
+
+        # 2. Create the Notification (Request)
+        from backend.app.models import Notification # Ensure this model exists
+        new_notif = Notification(
+            recipient_id=partner.id,
+            sender_id=sender_id,
+            message=f"wants to be your accountability buddy!",
+            type="buddy_request",
+            status="unread"
         )
-    )
+        session.add(new_notif)
+        session.commit()
+
+        return jsonify({"success": True, "message": "Request sent to " + partner.name})
+
+@app.route(f"{API_PREFIX}/partners", methods=["GET"])
+@jwt_required()
+def get_partners():
+    with get_db_session() as session:
+        current_user_id = int(get_jwt_identity())
+        student = session.query(Student).get(current_user_id)
+        
+        partners_list = [
+            {"id": p.id, "name": p.name, "email": p.email} 
+            for p in student.partners
+        ]
+        
+        return jsonify({"success": True, "partners": partners_list})
 
 # =========================
 # NUDGES
@@ -298,6 +336,78 @@ def get_nudges(student_id):
         "count": len(nudges)
     })
 
+# =========================
+# NOTIFIFCATIONS
+# =========================
+@app.route(f"{API_PREFIX}/notifications/<int:notif_id>/respond", methods=["POST"])
+@jwt_required()
+def respond_to_request(notif_id):
+    from backend.app.models import Notification, Student
+    with get_db_session() as session:
+        data = request.get_json()
+        action = data.get("action") 
+        current_user_id = int(get_jwt_identity())
+        
+        # Use session.get() for SQLAlchemy 2.0 compatibility
+        notification = session.get(Notification, notif_id)
+        if not notification or notification.recipient_id != current_user_id:
+            return jsonify({"error": "Notification not found"}), 404
+
+        if action == "accept":
+            sender = session.get(Student, notification.sender_id)
+            recipient = session.get(Student, current_user_id)
+            
+            # PREVENTION: Only append if the link doesn't exist
+            if sender not in recipient.partners:
+                recipient.partners.append(sender)
+            if recipient not in sender.partners:
+                sender.partners.append(recipient)
+            
+            notification.status = "accepted"
+            
+            # Send confirmation back to the requester
+            new_notif = Notification(
+                recipient_id=sender.id,
+                sender_id=current_user_id,
+                message=f"{recipient.name} accepted your buddy request!",
+                type="system_alert",
+                status="unread"
+            )
+            session.add(new_notif)
+        else:
+            notification.status = "declined"
+
+        session.commit()
+        return jsonify({"success": True})
+@app.route(f"{API_PREFIX}/notifications", methods=["GET"])
+@jwt_required()
+def get_notifications():
+    """Fetch all notifications for the current logged-in student."""
+    with get_db_session() as session:
+        current_user_id = int(get_jwt_identity())
+        
+        # Query notifications where the current user is the recipient
+        # We order by created_at desc so the newest appear first
+        from backend.app.models import Notification  # Ensure this is imported
+        notifications = session.query(Notification).filter_by(
+            recipient_id=current_user_id
+        ).order_by(Notification.created_at.desc()).all()
+
+        notifications_list = []
+        for n in notifications:
+            notifications_list.append({
+                "id": n.id,
+                "sender_id": n.sender_id,
+                "message": n.message,
+                "type": n.type,
+                "status": n.status,
+                "created_at": n.created_at.isoformat()
+            })
+
+        return jsonify({
+            "success": True, 
+            "notifications": notifications_list
+        })
 # =========================
 # ENTRY POINT
 # =========================

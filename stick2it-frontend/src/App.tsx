@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Sidebar as LegacySidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { DashboardHeader } from "./components/DashboardHeader";
+import { BuddyHeader } from "./components/BuddyHeader";
 import { DashboardView } from "./view/dashboard/DashboardView";
 import { RemindersView } from "./view/dashboard/RemindersView";
 import { TodayView } from "./view/dashboard/TodayView";
@@ -261,8 +262,10 @@ export default function App() {
           <div className="min-h-screen bg-white lg:rounded-tl-3xl">
             {activeSection === "dashboard" ? (
               <DashboardHeader onMenuClick={() => setSidebarOpen(true)} />
+            ) : activeSection === "buddy" ? (
+              <BuddyHeader onMenuClick={() => setSidebarOpen(true)} token={token || ""}/>
             ) : (
-              <Header onMenuClick={() => setSidebarOpen(true)} />
+              <Header onMenuClick={() => setSidebarOpen(true)} token={token || ""}/>
             )}
 
             <main className="px-4 md:px-6 lg:px-8 ">{renderContent()}</main>

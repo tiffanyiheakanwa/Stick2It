@@ -11,7 +11,6 @@ interface StakesAtRiskProps {
 
 export function StakesAtRiskCard({ commitments }: StakesAtRiskProps) {
 // Derive dynamic values from the commitments array
-console.log("Card received commitments:", commitments);
 const activeCommitments = commitments.filter(c => c.status === "pending");
 const activeCommitmentsCount = activeCommitments.length;
 const totalAtRiskPoints = activeCommitments.reduce((sum, c) => sum + (c.stake_value || 0), 0);

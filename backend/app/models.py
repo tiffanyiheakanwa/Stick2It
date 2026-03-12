@@ -1,9 +1,16 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, Float, Text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, Float, Text, Table
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from .database import Base 
+
+partnerships = Table(
+    'partnerships',
+    Base.metadata,
+    Column('student_id', Integer, ForeignKey('students.id'), primary_key=True),
+    Column('partner_id', Integer, ForeignKey('students.id'), primary_key=True)
+)
 
 class Student(Base):
     __tablename__ = "students"
@@ -16,6 +23,14 @@ class Student(Base):
     no_nudges = Column(Boolean, default=False)      # Opt-out for nudges
     model_opt_out = Column(Boolean, default=False)  # Opt-out for ML modeling
 
+    partners = relationship(
+        "Student",
+        secondary=partnerships,
+        primaryjoin=(id == partnerships.c.student_id),
+        secondaryjoin=(id == partnerships.c.partner_id),
+        backref="added_by"
+    )
+    
     # Password helpers migrated from database_setup_content.py
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -139,7 +154,21 @@ class Nudge(Base):
 
     student = relationship("Student", back_populates="nudges")
 
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True, index=True)
+    recipient_id = Column(Integer, ForeignKey("students.id"))
+    sender_id = Column(Integer, ForeignKey("students.id"))
+    message = Column(Text)
+    type = Column(String(50)) # e.g., 'buddy_request', 'system_alert'
+    status = Column(String(20), default="unread") # unread, read, accepted, declined
+    created_at = Column(DateTime, server_default=func.now())
+
+    recipient = relationship("Student", foreign_keys=[recipient_id])
+    sender = relationship("Student", foreign_keys=[sender_id])
+    
 class Prediction(Base):
+
     """Historical log for Phase 4 evaluation"""
     __tablename__ = "predictions"
 
