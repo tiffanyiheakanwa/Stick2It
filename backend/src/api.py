@@ -287,7 +287,7 @@ def get_student_stats(student_id):
 def get_buddy_commitments():
     with get_db_session() as session:
         current_user_id = int(get_jwt_identity())
-        student = session.query(Student).get(current_user_id)
+        student = session.get(Student, current_user_id)
         
         # Find all commitments where the current student's email is the buddy_email
         from backend.app.models import Commitment, Prediction

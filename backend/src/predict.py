@@ -70,11 +70,17 @@ class ProcrastinationPredictor:
                 }
         
             behavior = session.query(StudentBehavior).filter(
-                StudentBehavior.id_student == student_id
+                StudentBehavior.student_id == student_id
             ).first()
             
             if not behavior:
-                raise ValueError(f"Student {student_id} not found in database")
+                raise ValueError(f"New student {student_id} detected. Using default risk profile.")
+                # Return a default risk score (e.g., 50%) or a mock data structure
+                return {
+                    'p_fail': 0.5, 
+                    'risk_category': 'Medium',
+                    'is_new_user': True
+                }
 
             now = datetime.utcnow()
 
@@ -118,11 +124,19 @@ class ProcrastinationPredictor:
     # -----------------------------
     def predict_from_task(self, task_description: str, student_id:int=None):
         now = datetime.utcnow()
+
+        task_length = len(task_description.split())
+    
+    # Heuristic: Count "high-effort" keywords
+        heavy_keywords = ['thesis', 'exam', 'final', 'project', 'research', 'essay', 'complete']
+        complexity = sum(2 for word in heavy_keywords if word in task_description.lower())
+        
         features_dict = {
-            'task_length': len(task_description.split()),
+            'task_length': task_length,
             'hour_of_day': now.hour,
             'day_of_week': now.weekday(),
-            'complexity_words': sum(1 for word in ['essay', 'project', 'exam'] if word in task_description.lower())
+            'complexity_words': complexity,
+            'estimated_duration': task_length / 5.0, 
         }
 
         # IMPORTANT: Fetch real student history if available
@@ -134,22 +148,24 @@ class ProcrastinationPredictor:
                         'last_minute_ratio': behavior.last_minute_ratio or 0.5,
                 'completion_rate': behavior.completion_rate or 0.5,
                 'engagement_intensity': behavior.engagement_intensity or 10.0,
-                'deadline_pressure': behavior.deadline_pressure or 0.0,
-                'login_consistency': behavior.login_consistency or 0.0,
-                'early_starter': behavior.early_starter or 0,
-                'activity_span': behavior.activity_span or 0.0
+                # 'deadline_pressure': behavior.deadline_pressure or 0.0,
+                # 'login_consistency': behavior.login_consistency or 0.0,
+                # 'early_starter': behavior.early_starter or 0,
+                # 'activity_span': behavior.activity_span or 0.0
                     })
                 else:
                     # Fallback for new students with no history
+                    is_long_task = 1 if task_length > 10 else 0
                     features_dict.update({
-                        'last_minute_ratio': 0.3, 
-                        'completion_rate': 0.7,
-                        'engagement_intensity': 5.0,
-                        'deadline_pressure': 1.0,
-                        'login_consistency': 0.8,
-                        'early_starter': 1,
-                        'activity_span': 10.0
+                        'last_minute_ratio': 0.2 + (is_long_task * 0.4), # Higher risk for longer tasks
+                        'completion_rate': 0.8 - (is_long_task * 0.3),
+                        'engagement_intensity': 5.0 + (is_long_task * 10)
+                        # 'deadline_pressure': 1.0,
+                        # 'login_consistency': 0.8,
+                        # 'early_starter': 1,
+                        # 'activity_span': 10.0
                     })
+                
         return self.predict_risk(features_dict)
 
 # -----------------------------

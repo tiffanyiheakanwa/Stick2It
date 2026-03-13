@@ -1,7 +1,8 @@
 import { Card, CardContent } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
 import { Clock } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useTasks } from "../../context/TaskContext"; 
 
 // const priorityColors = {
 //   High: "bg-red-100 text-red-700 border-red-200",
@@ -9,46 +10,18 @@ import { useState, useEffect } from "react";
 //   Low: "bg-green-100 text-green-700 border-green-200",
 // };
 
-interface RemindersViewProps {
-  token: string;
-  studentId: number;
-}
 
-export function RemindersView({ token, studentId }: RemindersViewProps) {
-  const [commitments, setCommitments] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+export function RemindersView(){
+  const { commitments, loading } = useTasks();
   const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
-
-  useEffect(() => {
-    const fetchCommitments = async () => {
-      try {
-        const response = await fetch(`http://localhost:5000/api/v1/students/${studentId}/stats`, {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        });
-        const data = await response.json();
-        if (data.success) {
-          // Map backend Commitment model to your view's needs
-          setCommitments(data.commitments || []); 
-        }
-      } catch (error) {
-        console.error("Error fetching commitments:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchCommitments();
-  }, [token, studentId]);
 
   const filteredReminders = commitments.filter((c) => {
     if (filter === "active") return c.status === "pending";
-    if (filter === "completed") return c.status === "kept";
+    if (filter === "completed") return c.status === "kept" || c.status === "completed";
     return true;
   });
 
-  if (loading) return <div className="p-8 text-center">Loading your commitments...</div>;
+  if (loading) return <div className="p-8 text-center text-indigo-600 animate-pulse">Loading your commitments...</div>;
 
   return (
     <div className="space-y-6">

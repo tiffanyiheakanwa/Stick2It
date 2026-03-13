@@ -1,34 +1,18 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { AlertCircle, CheckCircle2, XCircle } from "lucide-react";
+import { useTasks } from '../../context/TaskContext';
 
-export function BuddyView({ token }: { token: string }) {
-  const [commitments, setCommitments] = useState<any[]>([]);
-
-  const fetchBuddyTasks = async () => {
-    const res = await fetch("http://localhost:5000/api/v1/buddy/commitments", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const data = await res.json();
-    if (data.success) setCommitments(data.commitments);
-  };
-
-  useEffect(() => { fetchBuddyTasks(); }, [token]);
-
-  const handleVerify = async (vToken: string, action: 'kept' | 'broken') => {
-    // Calls the endpoint defined in your main.py
-    const res = await fetch(`http://localhost:5000/api/v1/verify/${vToken}/${action}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    if (res.ok) fetchBuddyTasks(); // Refresh list
-  };
+export function BuddyView() {
+  const { supervisedTasks, handleVerify, refreshData, token } = useTasks();
+  useEffect(() => {
+    if (token) {
+      refreshData();
+    }
+  }, [token, refreshData]);
 
   return (
     <div className="p-6 space-y-6">
@@ -51,7 +35,7 @@ export function BuddyView({ token }: { token: string }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {commitments.map((c) => (
+              {supervisedTasks.map((c:any) => (
                 <TableRow key={c.id}>
                   <TableCell className="font-medium">{c.owner_name}</TableCell>
                   <TableCell>{c.title}</TableCell>

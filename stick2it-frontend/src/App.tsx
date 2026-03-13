@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
 import { Sidebar as LegacySidebar } from "./components/Sidebar";
-import { Header } from "./components/Header";
-import { DashboardHeader } from "./components/DashboardHeader";
-import { BuddyHeader } from "./components/BuddyHeader";
+import { Header } from "./components/header/Header.tsx";
+import { DashboardHeader } from "./components/header/DashboardHeader.tsx";
+import { BuddyHeader } from "./components/header/BuddyHeader.tsx";
 import { DashboardView } from "./view/dashboard/DashboardView";
 import { RemindersView } from "./view/dashboard/RemindersView";
 import { TodayView } from "./view/dashboard/TodayView";
-import { UpcomingView } from "./view/dashboard/UpcomingView";
 import { AISuggestionsView } from "./view/dashboard/AISuggestionsView";
 import { AuthLoginView } from "./view/auth/AuthLoginView";
 import { AuthSignupView } from "./view/auth/AuthSignupView";
 import { BuddyView } from "@/view/dashboard/BuddyView";
+import { useTasks } from './context/TaskContext.tsx';
 
 export interface Reminder {
   id: number;
@@ -28,211 +28,139 @@ export interface Reminder {
   status: string;          // To track 'pending', 'completed', or 'broken'
 }
 
-export interface Habit {
-  id: number;
-  name: string;
-  streak: number;
-  goal: string;
-  completed: boolean[];
-  color: string;
-  bgColor: string;
-}
-
 export default function App() {
-  const [activeSection, setActiveSection] = useState("dashboard");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { 
+    token, 
+    studentId, 
+    isAuthenticated, 
+    currentStudent, 
+    login, 
+    logout,
+    loading
+  } = useTasks();
+
+  const [activeSection, setActiveSection] = useState(() => {
+    return sessionStorage.getItem('lastSection') || "dashboard";
+  });
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
-  const [token, setToken] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [currentStudent, setCurrentStudent] = useState<{
-    id: number;
-    name: string;
-    email: string;
-  } | null>(null);
+  
 
   const API_BASE_URL = "http://localhost:5000/api/v1";
 
   useEffect(() => {
-    if (!isAuthenticated || !token || !currentStudent) return;
+    sessionStorage.setItem('lastSection', activeSection);
+  }, [activeSection]);
 
-    const studentId = currentStudent.id;
-
-    const fetchDashboardData = async () => {
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/students/${studentId}/stats`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-        const data = await response.json();
-        
-        // Map backend data to your frontend Reminder interface
-        if (data.commitments) {
-          setReminders(data.commitments.map((c: any) => ({
-            id: c.id,
-            title: c.content_title || "Unnamed Task",
-            time: new Date(c.committed_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),            priority: c.stake_value > 20 ? "High" : "Medium", // Derived priority
-            category: c.assignment_id ? "Academic" : "Study",
-            completed: c.status === "completed",
-            date: c.committed_datetime.split('')[0],
-            aiSuggested: false,
-            stakeType: c.stake_type,
-            stakeValue: c.stake_value,
-            buddyName: c.buddy_name,
-            status: c.status
-          })));
-        }
-      } catch (error) {
-        console.error("Failed to fetch data from backend:", error);
-      }
-    };
-
-    fetchDashboardData();
-  }, [API_BASE_URL, isAuthenticated, token, currentStudent]);
-
+  // 1. Define toggleReminder at the top level so renderContent can see it
   const toggleReminder = (id: number) => {
-    setReminders(
-      reminders.map((reminder) =>
-        reminder.id === id
-          ? { ...reminder, completed: !reminder.completed }
-          : reminder
-      )
+    setReminders(prev =>
+      prev.map((r) => r.id === id ? { ...r, completed: !r.completed } : r)
     );
   };
 
-  // const deleteReminder = (id: number) => {
-  //   setReminders(reminders.filter((reminder) => reminder.id !== id));
-  // };
-
-  const addReminder = async(
-    title: string,
-    time: string,
-    priority: string = "Medium",
-    category: string = "Personal"
-  ) => {
+  // 2. Define addReminder at the top level
+  const addReminder = async (title: string, time: string) => {
     try {
-    // 1. Prepare the payload for the CommitmentSystem
-    // Note: In your backend, 'content_id' or 'assignment_id' is required
-    const payload = {
-      content_id: 1, // You should ideally pass the actual ID from the UI
-      committed_datetime: new Date().toISOString(), 
-      type: "start_time" 
-    };
+      const response = await fetch(`${API_BASE_URL}/commitments`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title,
+          committed_datetime: new Date().toISOString(),
+          stake_value: 10
+        }),
+      });
 
-    if (!token) {
-      console.warn("Cannot create commitment without auth token");
-      return;
+      if (!response.ok) throw new Error("Failed to save");
+      const saved = await response.json();
+
+      setReminders(prev => [...prev, {
+        id: saved.id,
+        title,
+        time,
+        priority: "Medium",
+        category: "Personal",
+        completed: false,
+        date: new Date().toISOString().split("T")[0],
+        aiSuggested: false,
+        status: "pending"
+      }]);
+    } catch (error) {
+      console.error("Error adding reminder:", error);
     }
+  };
 
-    const response = await fetch(`${API_BASE_URL}/commitments`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
-    });
+  // 3. Keep useEffect ONLY for fetching the initial list
+  useEffect(() => {
+    if (!isAuthenticated || !token || !studentId) return;
 
-    if (!response.ok) throw new Error("Failed to save commitment");
-
-    const savedCommitment = await response.json();
-
-    // 2. Update local state with the returned data from the backend
-    const newReminder: Reminder = {
-      id: savedCommitment.id || Math.max(...reminders.map((r) => r.id), 0) + 1,
-      title: title, // Use the title entered in the UI
-      time: time,
-      priority,
-      category,
-      completed: false,
-      date: new Date().toISOString().split("T")[0],
-      aiSuggested: false,
-      status: "pending", // Default status from backend
-      stakeValue: savedCommitment.stake_value || 10,
-      stakeType: savedCommitment.stake_type || "Points",
+    const fetchDashboardData = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/students/${studentId}/stats`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await response.json();
+        
+        if (data.commitments) {
+          setReminders(data.commitments.map((c: any) => ({
+            id: c.id,
+            title: c.custom_title || "Unnamed Task",
+            time: new Date(c.committed_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            priority: "Medium",
+            category: "Study",
+            completed: c.status === "completed",
+            date: c.committed_datetime.split('T')[0],
+            aiSuggested: false,
+            status: c.status
+          })));
+        }
+      } catch (error) { console.error(error); }
     };
 
-    setReminders((prev) => [...prev, newReminder]);
-  } catch (error) {
-    console.error("Error adding reminder:", error);
-    // Optional: Add a toast notification here to inform the user
-  }
-  };
+    fetchDashboardData();
+  }, [isAuthenticated, token, studentId]);
+
+  if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-indigo-600 text-white">Loading...</div>;
 
   const renderContent = () => {
     if (!isAuthenticated) {
-      if (authMode === "login") {
-        return (
-          <AuthLoginView
-            onLoginSuccess={({ token, student }) => {
-              setToken(token);
-              setCurrentStudent(student);
-              setIsAuthenticated(true);
-              setActiveSection("dashboard");
-            }}
-            onSwitchToSignup={() => setAuthMode("signup")}
-          />
-        );
-      }
-
-      return (
+      return authMode === "login" ? (
+        <AuthLoginView
+          onLoginSuccess={({ token, student }) => {
+            login(token, student); 
+            setActiveSection("dashboard");
+          }}
+          onSwitchToSignup={() => setAuthMode("signup")}
+        />
+      ) : (
         <AuthSignupView
           onSignupSuccess={({ token, student }) => {
-            setToken(token);
-            setCurrentStudent(student);
-            setIsAuthenticated(true);
+            login(token, student);
             setActiveSection("dashboard");
           }}
           onSwitchToLogin={() => setAuthMode("login")}
         />
       );
     }
+
     switch (activeSection) {
       case "dashboard":
-        return (
-          <DashboardView
-            reminders={reminders}
-            addReminder={addReminder}
-            token={token || ""}
-            studentId={currentStudent?.id || 1}
-            studentName={currentStudent?.name || ""}
-          />
-        );
+        return <DashboardView addReminder={addReminder} />;
+      case "buddy":
+        return <BuddyView />;
       case "reminders":
-        return (
-          <RemindersView
-            token={token || ""}
-            studentId={currentStudent?.id || 1}
-          />
-        );
+        return <RemindersView />;
       case "today":
-        return (
-          <TodayView reminders={reminders} toggleReminder={toggleReminder} />
-        );
-      case "upcoming":
-        return <UpcomingView reminders={reminders} />;
+        return <TodayView reminders={reminders} toggleReminder={toggleReminder} />;
       case "ai":
         return <AISuggestionsView addReminder={addReminder} />;
-      case "buddy":
-        return (
-          <BuddyView
-          token={token || ""}
-          />
-        );
       default:
-        return (
-          <DashboardView
-            reminders={reminders}
-            addReminder={addReminder}
-            token={token || ""}
-            studentId={currentStudent?.id || 1}
-            studentName={currentStudent?.name || ""}
-          />
-        );
+        return <DashboardView addReminder={addReminder} />;
     }
   };
 
@@ -245,14 +173,7 @@ export default function App() {
           currentStudent={currentStudent}
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
-          onLogout={() => {
-            setIsAuthenticated(false);
-            setAuthMode("login");
-            setSidebarOpen(false);
-            setToken(null);
-            setCurrentStudent(null);
-            setReminders([]);
-          }}
+          onLogout={logout}
         />
       )}
 

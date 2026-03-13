@@ -1,5 +1,5 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { TrendingDown, Users, Calendar, Zap } from "lucide-react";
+import { Calendar, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 /**

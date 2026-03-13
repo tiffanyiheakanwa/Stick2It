@@ -8,29 +8,23 @@ import { CreateCommitmentModal } from "../../components/modal/CreateCommitmentMo
 // import { AIRecommendation } from "../../components/AIRecommendation";
 import { SuccessChart } from "../../components/SuccessChart";
 import { NudgesNotifications } from "../../components/NudgesNotifications";
-import type { Reminder } from "../../App";
 import StakesAtRiskCard from "@/components/StakesAtRiskCard";
 import { useState, useEffect } from "react";
+import { useTasks } from "../../context/TaskContext"; 
 
 interface DashboardViewProps {
-  reminders: Reminder[];
   addReminder: (title: string, time: string) => void;
-  token: string;
-  studentId : number;
-  studentName: string;
 }
 
 export function DashboardView({
-  reminders,
-  addReminder,
-  token,
-  studentId,
-  studentName,
+  addReminder
 }: DashboardViewProps) {
+
+  const { commitments, token, studentId, currentStudent, nudges, refreshData } = useTasks();
 
   const [quickInput, setQuickInput] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [commitments, setCommitments] = useState<any[]>([]);
+  const [localCommitments, setLocalCommitments] = useState<any[]>([]);
 
   const handleOpenModal = () => {
     if (quickInput.trim()) {
@@ -40,6 +34,7 @@ export function DashboardView({
 
   useEffect(() => {
     const loadData = async () => {
+      if (!token || !studentId) return;
       try {
         const response = await fetch(`http://localhost:5000/api/v1/students/${studentId}/stats`, {
           headers: { "Authorization": `Bearer ${token}` }
@@ -47,44 +42,45 @@ export function DashboardView({
         const data = await response.json();
         
         if (data.success && data.commitments) {
-          console.log("Backend returned commitments:", data.commitments);
-          setCommitments(data.commitments); // Ensure this state is passed to the card
+          setLocalCommitments(data.commitments);
         }
       } catch (err) {
         console.error("Dashboard fetch error:", err);
       }
     };
     
-    if (token && studentId) {
-      loadData();
-    }
+    loadData();
   }, [token, studentId]);
 
   return (
     <div className="space-y-6">
       <div className="p-0">
         <div className="pl-4 pb-4">
-          <h1 className="font-semibold text-xl">Hi, {studentName}</h1>
+          <h1 className="font-semibold text-xl">Hi, {currentStudent?.name || "Student"}</h1>
           <p className="text-blue-600">Let's finish your task today!</p>
         </div>
-        <WelcomeCard reminders={reminders} />
+        <WelcomeCard reminders={commitments} />
       </div>
 
       <QuickReminderCreation onAddReminder={addReminder} value={quickInput} onChange={setQuickInput} onOpenModal={handleOpenModal}/>
       
       <CreateCommitmentModal 
         isOpen={isModalOpen} 
-        onOpenChange={setIsModalOpen} 
+        onOpenChange={(open) => {
+          setIsModalOpen(open);
+          if (!open) refreshData(); // Refresh global tasks when modal closes
+        }} 
         initialTitle={quickInput} 
-        token={token}
+        token={token || ""}
+
       />
 
       <div className="flex flex-col xl:flex-row gap-5">
         <div className="xl:flex-1 min-w-0">
-          <StakesAtRiskCard commitments={commitments} />
+          <StakesAtRiskCard commitments={localCommitments} />
         </div>
         <div className="xl:flex-1 min-w-0">
-          <NudgesNotifications />
+          <NudgesNotifications externalNudges={nudges}/>
         </div>
       </div>
 
