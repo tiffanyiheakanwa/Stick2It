@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { Bell, Flame, Search, Mail, Menu, UserPlus, Check, X } from "lucide-react";
-import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Badge } from "../ui/badge.tsx";
+import { Button } from "../ui/button.tsx";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 
 interface HeaderProps {
   onMenuClick: () => void;
