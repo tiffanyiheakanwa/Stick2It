@@ -31,43 +31,48 @@ export function SuccessChart() {
 
   const dynamicData = useMemo(() => {
     const now = new Date();
-    let daysToScroll: number;
+    const dataMap: Record<string, { label: string, count: number }> = {};
+    let daysToScroll: number = timeRange === "7d" ? 7 : timeRange === "1m" ? 30 : 90;
 
-    // Determine range
-    if (timeRange === "7d") daysToScroll = 7;
-    else if (timeRange === "1m") daysToScroll = 30;
-    else daysToScroll = 90;
-
-    const dataMap: Record<string, number> = {};
-
-    // Initialize the range with 0s so the chart doesn't have gaps
+    // 1. Initialize keys using local date parts (YYYY-MM-DD)
     for (let i = daysToScroll - 1; i >= 0; i--) {
       const d = new Date();
       d.setDate(now.getDate() - i);
-      const label = timeRange === "7d" 
+      
+      // Manual format to stay in local time: YYYY-MM-DD
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const key = `${year}-${month}-${day}`;
+      
+      const displayLabel = timeRange === "7d" 
         ? d.toLocaleDateString(undefined, { weekday: 'short' }) 
         : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      dataMap[label] = 0;
+
+      dataMap[key] = { label: displayLabel, count: 0 };
     }
 
-    // Aggregate real data
-    commitments.forEach((c) => {
-      if (c.status === 'completed' && c.date) {
-        const cDate = new Date(c.date);
-        const diffDays = (now.getTime() - cDate.getTime()) / (1000 * 3600 * 24);
+    // 2. Aggregate real data using the same local format
+    if (commitments && commitments.length > 0) {
+      commitments.forEach((c) => {
+        // Ensure status matches exactly
+        if ((c.status === 'completed' || c.status === 'kept') && c.committed_datetime) {
+          const d = new Date(c.committed_datetime);
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const cDateKey = `${year}-${month}-${day}`;
 
-        if (diffDays <= daysToScroll) {
-          const label = timeRange === "7d" 
-            ? cDate.toLocaleDateString(undefined, { weekday: 'short' }) 
-            : cDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-          if (dataMap.hasOwnProperty(label)) dataMap[label]++;
+          if (dataMap[cDateKey]) {
+            dataMap[cDateKey].count++;
+          }
         }
-      }
-    });
+      });
+    }
 
-    return Object.entries(dataMap).map(([label, completions]) => ({
-      label,
-      completions
+    return Object.values(dataMap).map(item => ({
+      label: item.label,
+      completions: item.count
     }));
   }, [commitments, timeRange]);
 
@@ -131,12 +136,13 @@ export function SuccessChart() {
               tickLine={false}
               axisLine={false}
               tickMargin={10}
+              interval={timeRange === "7d" ? 0 : timeRange === "1m" ? 7 : 16}
               tickFormatter={(value:any) => value.slice(0, 3)}
               className="text-[10px] md:text-xs"
             />
             <ChartTooltip
-              cursor={false}
-              content={<ChartTooltipContent indicator="line" hideLabel />}
+              cursor={{ stroke: '#E2E8F0', strokeWidth: 2 }}
+              content={<ChartTooltipContent indicator="line" />}
             />
             <Area
               type="monotone"
