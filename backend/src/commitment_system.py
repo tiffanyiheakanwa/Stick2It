@@ -70,8 +70,11 @@ class CommitmentSystem:
                 return {"success": False, "error": "Invalid or inactive commitment"}
 
             now = actual_action_time or datetime.utcnow()
-            deadline = commitment.assignment.due_date
-            
+            if commitment.assignment:
+                deadline = commitment.assignment.due_date
+            else:
+                deadline = commitment.committed_datetime    
+                        
             # Strict Integrity Enforcement
             if now > deadline:
                 # Optional 1-hour grace period if explicitly requested for UX

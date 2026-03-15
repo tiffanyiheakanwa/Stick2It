@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Sparkles, Brain, Lightbulb, TrendingUp, ArrowRight } from "lucide-react";
+import { useTasks } from "../../context/TaskContext";
 
 const recommendations = [
   {
@@ -51,21 +52,18 @@ const iconColors = {
   automation: "text-orange-600",
 };
 
-interface AISuggestionsViewProps {
-  addReminder: (title: string, time: string, priority: string, category: string) => void;
-}
-
-export function AISuggestionsView({ addReminder }: AISuggestionsViewProps) {
+export function AISuggestionsView() {
+  const { addReminder } = useTasks()
   const handleActionClick = (rec: typeof recommendations[0]) => {
     if (rec.id === 2) {
       // Break down large tasks
-      addReminder("Research project topic", "Tomorrow, 9:00 AM", "High", "Academic");
-      addReminder("Create project outline", "Dec 17, 10:00 AM", "High", "Academic");
-      addReminder("Draft first section", "Dec 18, 2:00 PM", "Medium", "Academic");
+      addReminder("Research project topic", "Tomorrow, 9:00 AM", "High");
+      addReminder("Create project outline", "Dec 17, 10:00 AM", "High");
+      addReminder("Draft first section", "Dec 18, 2:00 PM", "Medium");
       alert("Created 3 sub-tasks for your project!");
     } else if (rec.id === 4) {
       // Set up automation
-      addReminder("Weekly review session", "Every Monday, 9:00 AM", "Medium", "Study");
+      addReminder("Weekly review session", "Every Monday, 9:00 AM", "Medium");
       alert("Automated recurring reminder created!");
     } else {
       alert(`Applied: ${rec.title}`);

@@ -11,7 +11,8 @@ from .nudge_system import SmartNudgeSystem
 from .progress import ProgressTracker
 from .utils import safe_execute
 from .logger import logger
-from backend.app.models import Student
+from backend.app.models import Student, Commitment
+from backend.app.database import get_db_session        
 
 
 
@@ -49,15 +50,14 @@ def check_commitments():
         traceback.print_exc()
 
 def send_nudges():
-    """Run nudge engine to send personalized nudges"""
-    try:
-        print(f" [{datetime.utcnow()}] Running nudge engine...")
-        logger.info(" Running job: send_nudges")
-        safe_execute(nudge_system.check_and_send_nudges(student_id=None))
-    except Exception as e:
-        print(f" Error in send_nudges: {e}")
-        logger.error(f" Error in send_nudges: {e}")
-        traceback.print_exc()
+    with get_db_session() as session:
+        # Get all students who have active commitments
+        active_student_ids = session.query(Commitment.student_id).filter_by(status='pending').distinct().all()
+        
+        for (s_id,) in active_student_ids:
+            logger.info(f"Running scheduled nudge check for student {s_id}")
+            # Correctly call the function, don't wrap the result in safe_execute
+            nudge_system.check_and_send_nudges(student_id=s_id)
 
 def update_streaks():
     """Update daily streaks for all students"""

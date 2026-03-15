@@ -1,5 +1,5 @@
 import { Card, CardContent } from "./ui/card";
-import { Plus, Clock, Calendar, Zap } from "lucide-react";
+import { Plus, Clock, Calendar, Zap, Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { useState } from "react";
 
@@ -10,32 +10,29 @@ const quickActions = [
 ];
 
 interface QuickReminderCreationProps {
-  onAddReminder: (title: string, time: string) => void;
+  onAddReminder: (title: string, time: string) => Promise<void>;
   value: string;
   onChange: (value: string) => void;
   onOpenModal: () => void;
 }
 
 export function QuickReminderCreation({ onAddReminder, value, onChange, onOpenModal }: QuickReminderCreationProps) {
-  const [reminderText, setReminderText] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleAddReminder = () => {
-    if (reminderText.trim()) {
-      onAddReminder(reminderText, "Later today");
-      setReminderText("");
-    }
-  };
+  // Unified Save Logic
+  const processAdd = async (time: string = "Later today") => {
+    // 1. Validation: Prevent empty tasks
+    if (!value.trim()) return;
 
-  const handleQuickAdd = (time: string) => {
-    if (reminderText.trim()) {
-      onAddReminder(reminderText, time);
-      setReminderText("");
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleAddReminder();
+    setIsSaving(true);
+    try {
+      await onAddReminder(value, time);
+      // 2. The parent should handle clearing the 'value' prop, 
+      // but we ensure validation passes first.
+    } catch (err) {
+      console.error("Failed to add", err);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -48,15 +45,17 @@ export function QuickReminderCreation({ onAddReminder, value, onChange, onOpenMo
             placeholder="What are you commiting to?"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onKeyPress={(e) => e.key === 'Enter' && processAdd()}
+            disabled={isSaving}
             className="flex-1 px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <Button 
             onClick={onOpenModal}
+            disabled={isSaving || !value.trim()} // Validation: Disable if empty
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 w-full sm:w-auto"
           >
-            <Plus className="w-5 h-5 mr-2" />
-            Add
+            {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5 mr-2" />}
+            {isSaving ? "Saving..." : "Add"}
           </Button>
         </div>
         
@@ -65,7 +64,8 @@ export function QuickReminderCreation({ onAddReminder, value, onChange, onOpenMo
           {quickActions.map((action) => (
             <button
               key={action.label}
-              onClick={() => handleQuickAdd(action.time)}
+              disabled={isSaving || !value.trim()}
+              onClick={() => processAdd(action.time)}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${action.bgColor} hover:opacity-80 transition-opacity text-sm`}
             >
               <action.icon className={`w-4 h-4 ${action.color}`} />

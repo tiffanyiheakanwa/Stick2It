@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
+const API_BASE_URL = "http://localhost:5000/api/v1";
+
 interface TaskContextType {
   studentId: number | null;
   token: string | null;
@@ -8,11 +10,17 @@ interface TaskContextType {
   commitments: any[];
   nudges: any[];
   loading: boolean;
+  supervisedTasks: any[];
+  globalTaskInput: string;
+  isSaving: boolean;
   login: (token: string, student: any) => void;
   logout: () => void;
   refreshData: () => Promise<void>;
-  supervisedTasks: any[];
   handleVerify: (vToken: string, action: 'kept' | 'broken') => Promise<void>;
+  startTask: (assignmentId:number)=> void;
+  setGlobalTaskInput: (value: string) => void;
+  addReminder: (title: string, time: string, priority?:string)=> Promise<void>;
+  toggleReminder: (id:number) => void;
 }
 
 const TaskContext = createContext<TaskContextType | undefined>(undefined);
@@ -21,11 +29,14 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [studentId, setStudentId] = useState<number | null>(null);
   const [currentStudent, setCurrentStudent] = useState<any | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [commitments, setCommitments] = useState([]);
-  const [nudges, setNudges] = useState([]);
+  const [commitments, setCommitments] = useState<any[]>([]);
+  const [nudges, setNudges] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [supervisedTasks, setSupervisedTasks] = useState<any[]>([]);
+  const [globalTaskInput, setGlobalTaskInput] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
+  
   // Load auth from sessionStorage on mount
   useEffect(() => {
     const savedToken = sessionStorage.getItem('token');
@@ -40,7 +51,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setLoading(false);
   }, []);
-
+  
   useEffect(() => {
     if (token && studentId) {
       refreshData();
@@ -62,7 +73,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setStudentId(null);
     sessionStorage.clear();
   };
-
+  
   
   const refreshData = async () => {
     if (!token || !studentId) return;
@@ -110,9 +121,89 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const toggleReminder = (id: number) => {
+    setCommitments(prev =>
+      prev.map((r) => r.id === id ? { ...r, completed: !r.completed } : r)
+    );
+  };
+
+  const addReminder = async (title: string, time: string, priority: string = "Medium") => {
+    if (!title.trim()) return;
+    
+    setIsSaving(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/commitments`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title,
+          committed_datetime: new Date().toISOString(),
+          stake_value: 10
+        }),
+      });
+
+      if (response.ok) {
+        const savedTask = await response.json();
+
+        setCommitments((prev) => [
+          ...prev,
+          {
+            id: savedTask.id, 
+            title: title,
+            time: time,
+            status: "pending",
+            completed: false,
+            date: new Date().toISOString().split('T')[0],
+            aiSuggested: false,
+            priority: priority ,
+            category: "General"
+          },
+        ]);
+        setGlobalTaskInput(""); 
+        await refreshData();   
+      }
+    } catch (error) {
+      console.error("Context Error adding reminder:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const startTask = async (assignmentId: number) => {
+    if (!token) return;
+    console.log(" Attempting to start task ID:", assignmentId); 
+    try {
+      const res = await fetch(`http://localhost:5000/api/v1/commitments/${assignmentId}/start`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+  
+      if (res.ok) {
+        console.log("Backend updated. Re-fetching risk scores...");
+        await refreshData();
+        alert("Task started! Focus mode activated. ");
+      }
+      else {
+        const errorData = await res.json();
+        console.error("Backend rejected the start request:", errorData);
+      }
+    } catch (error) {
+      console.error("Failed to start task:", error);
+    }
+  };
+
   return (
     <TaskContext.Provider value={{ studentId, token, isAuthenticated: !!token, 
-      currentStudent,commitments, nudges, loading, login, logout, refreshData, supervisedTasks, handleVerify }}>
+      currentStudent,commitments, nudges, loading, login, logout, refreshData, supervisedTasks, handleVerify, startTask, toggleReminder, addReminder, 
+      globalTaskInput, 
+      setGlobalTaskInput, 
+      isSaving }}>
       {children}
     </TaskContext.Provider>
   );

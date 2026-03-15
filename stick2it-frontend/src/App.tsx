@@ -21,17 +21,17 @@ export interface Reminder {
   completed: boolean;
   date: string;
   aiSuggested: boolean;
-  // New fields to match the Commitment class
-  stakeType?: string;      // From stake_type
-  stakeValue?: number;     // From stake_value
-  buddyName?: string;      // From buddy_name
-  status: string;          // To track 'pending', 'completed', or 'broken'
+  status: string;          
+  stakeType?: string;      
+  stakeValue?: number;    
+  buddyName?: string;    
+  failureProbability?: number; 
+  riskCategory?: 'Low' | 'Medium' | 'High' | 'Critical'; 
 }
 
 export default function App() {
   const { 
     token, 
-    studentId, 
     isAuthenticated, 
     currentStudent, 
     login, 
@@ -44,86 +44,10 @@ export default function App() {
   });
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [reminders, setReminders] = useState<Reminder[]>([]);
-  
-
-  const API_BASE_URL = "http://localhost:5000/api/v1";
 
   useEffect(() => {
     sessionStorage.setItem('lastSection', activeSection);
   }, [activeSection]);
-
-  // 1. Define toggleReminder at the top level so renderContent can see it
-  const toggleReminder = (id: number) => {
-    setReminders(prev =>
-      prev.map((r) => r.id === id ? { ...r, completed: !r.completed } : r)
-    );
-  };
-
-  // 2. Define addReminder at the top level
-  const addReminder = async (title: string, time: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/commitments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          title,
-          committed_datetime: new Date().toISOString(),
-          stake_value: 10
-        }),
-      });
-
-      if (!response.ok) throw new Error("Failed to save");
-      const saved = await response.json();
-
-      setReminders(prev => [...prev, {
-        id: saved.id,
-        title,
-        time,
-        priority: "Medium",
-        category: "Personal",
-        completed: false,
-        date: new Date().toISOString().split("T")[0],
-        aiSuggested: false,
-        status: "pending"
-      }]);
-    } catch (error) {
-      console.error("Error adding reminder:", error);
-    }
-  };
-
-  // 3. Keep useEffect ONLY for fetching the initial list
-  useEffect(() => {
-    if (!isAuthenticated || !token || !studentId) return;
-
-    const fetchDashboardData = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/students/${studentId}/stats`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const data = await response.json();
-        
-        if (data.commitments) {
-          setReminders(data.commitments.map((c: any) => ({
-            id: c.id,
-            title: c.custom_title || "Unnamed Task",
-            time: new Date(c.committed_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            priority: "Medium",
-            category: "Study",
-            completed: c.status === "completed",
-            date: c.committed_datetime.split('T')[0],
-            aiSuggested: false,
-            status: c.status
-          })));
-        }
-      } catch (error) { console.error(error); }
-    };
-
-    fetchDashboardData();
-  }, [isAuthenticated, token, studentId]);
 
   if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-indigo-600 text-white">Loading...</div>;
 
@@ -150,17 +74,17 @@ export default function App() {
 
     switch (activeSection) {
       case "dashboard":
-        return <DashboardView addReminder={addReminder} />;
+        return <DashboardView />;
       case "buddy":
         return <BuddyView />;
       case "reminders":
         return <RemindersView />;
       case "today":
-        return <TodayView reminders={reminders} toggleReminder={toggleReminder} />;
+        return <TodayView />;
       case "ai":
-        return <AISuggestionsView addReminder={addReminder} />;
+        return <AISuggestionsView />;
       default:
-        return <DashboardView addReminder={addReminder} />;
+        return <DashboardView />;
     }
   };
 

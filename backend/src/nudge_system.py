@@ -145,7 +145,8 @@ class SmartNudgeSystem:
                             'type': f'AI_{category.upper()}',
                             'p_fail': p_fail,
                             'message': message,
-                            'assignment_id': commit.assignment_id
+                            'assignment_id': commit.assignment_id,
+                            'timing': 'immediate'
                         })
 
             # Execute and log the top priority nudge
@@ -359,7 +360,7 @@ class SmartNudgeSystem:
             if context == 'login':
                 relevant = [n for n in all_nudges if n['timing'] in ['immediate', 'next_login']]
             else:
-                relevant = [n for n in all_nudges if n['timing'] == 'immediate']
+                relevant = [n for n in all_nudges if n.get('timing') == 'immediate']
             
             return relevant[0] if relevant else None
     

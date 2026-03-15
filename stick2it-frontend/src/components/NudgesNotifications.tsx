@@ -1,13 +1,15 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Calendar, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useTasks } from "../context/TaskContext";
 
 /**
  * Combined Nudges Component: 
  * Handles both standard behavioral suggestions and AI-driven Loss Aversion alerts.
  */
 export function NudgesNotifications({ externalNudges = [] }: { externalNudges?: any[] }) {
-  
+  const { loading, startTask } = useTasks();
   // // Default static nudges for UI consistency
   // const defaultNudges = [
   //   {
@@ -34,6 +36,20 @@ export function NudgesNotifications({ externalNudges = [] }: { externalNudges?: 
 
   // // Combine static defaults with real-time AI nudges from the backend
   // const allNudges = [...externalNudges, ...defaultNudges];
+  if (loading) {
+    return (
+      <div className="space-y-3 p-4 border rounded-xl bg-white shadow-sm">
+        <Skeleton className="h-6 w-48 mb-4" /> {/* Title Skeleton */}
+        <div className="flex gap-3 items-center">
+          <Skeleton className="h-12 w-12 rounded-full" /> {/* Icon Skeleton */}
+          <div className="space-y-2 flex-1">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const getUrgencyStyles = (pFail: number) => {
     if (pFail >= 0.9) return "border-red-600 bg-red-100 animate-pulse border-4"; // Critical
@@ -76,7 +92,20 @@ export function NudgesNotifications({ externalNudges = [] }: { externalNudges?: 
                     </p>
                   </div>
                   <div className="mt-3 flex gap-2">
-                    <Button variant="destructive" size="sm" className="font-bold">Start Now</Button>
+                    <Button 
+                    variant="destructive" 
+                    size="sm" 
+                    onClick={() => {
+                      const rawId = nudge.assignment_id || nudge.id;
+                      const cleanId = typeof rawId === 'string' 
+                        ? parseInt(rawId.replace(/^\D+/g, ''), 10) 
+                        : rawId;
+                  
+                      if (!isNaN(cleanId)) {
+                        startTask(cleanId);
+                      }
+                    }}
+                    className="font-bold">Start Now</Button>
                     <Button variant="ghost" size="sm">Review Plan</Button>
                   </div>
                 </AlertDescription>

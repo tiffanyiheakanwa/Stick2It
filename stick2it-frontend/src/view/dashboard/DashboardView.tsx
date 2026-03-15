@@ -12,16 +12,9 @@ import StakesAtRiskCard from "@/components/StakesAtRiskCard";
 import { useState, useEffect } from "react";
 import { useTasks } from "../../context/TaskContext"; 
 
-interface DashboardViewProps {
-  addReminder: (title: string, time: string) => void;
-}
 
-export function DashboardView({
-  addReminder
-}: DashboardViewProps) {
-
-  const { commitments, token, studentId, currentStudent, nudges, refreshData } = useTasks();
-
+export function DashboardView() {
+  const { commitments, token, studentId, currentStudent, nudges, refreshData, addReminder } = useTasks();
   const [quickInput, setQuickInput] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [localCommitments, setLocalCommitments] = useState<any[]>([]);
@@ -51,6 +44,7 @@ export function DashboardView({
     
     loadData();
   }, [token, studentId]);
+
 
   return (
     <div className="space-y-6">

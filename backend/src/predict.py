@@ -7,10 +7,11 @@ import pandas as pd
 import numpy as np
 import re
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from backend.app.database import get_db_session
 from backend.app.models import StudentBehavior, Student
 from backend.app.models import Prediction, Commitment 
+from .logger import logger
 
 class ProcrastinationPredictor:
     """Class to handle procrastination risk predictions"""
@@ -59,14 +60,14 @@ class ProcrastinationPredictor:
         with get_db_session() as session:  # Auto-closes session
             student = session.query(Student).filter_by(id=student_id).first()
             if not student:
-                raise ValueError(f"Student {student_id} not found")
+                return (f"Student {student_id} not found")
 
             if student.model_opt_out:
                 return {
                     "prediction": "disabled",
                     "reason": "User opted out of predictive modeling",
                     "risk_category": None,
-                    "risk_score": None
+                    "risk_score": 50
                 }
         
             behavior = session.query(StudentBehavior).filter(
@@ -74,7 +75,7 @@ class ProcrastinationPredictor:
             ).first()
             
             if not behavior:
-                raise ValueError(f"New student {student_id} detected. Using default risk profile.")
+                logger.info(f"New student {student_id} detected. Using default risk profile.")
                 # Return a default risk score (e.g., 50%) or a mock data structure
                 return {
                     'p_fail': 0.5, 
@@ -127,7 +128,7 @@ class ProcrastinationPredictor:
 
         task_length = len(task_description.split())
     
-    # Heuristic: Count "high-effort" keywords
+        # Heuristic: Count "high-effort" keywords
         heavy_keywords = ['thesis', 'exam', 'final', 'project', 'research', 'essay', 'complete']
         complexity = sum(2 for word in heavy_keywords if word in task_description.lower())
         
@@ -168,6 +169,75 @@ class ProcrastinationPredictor:
                 
         return self.predict_risk(features_dict)
 
+    def refresh_behavior_stats(self, student_id):
+        with get_db_session() as session:
+            # 1. Fetch all historical commitments
+            all_commits = session.query(Commitment).filter_by(student_id=student_id).all()
+            
+            if not all_commits:
+                return
+
+            total = len(all_commits)
+            kept = len([c for c in all_commits if c.status == 'kept'])
+            in_progress = len([c for c in all_commits if c.status == 'in_progress'])
+            broken = len([c for c in all_commits if c.status == 'broken'])
+            
+            # 2. Calculate Ratios
+            effective_success = kept + (in_progress * 0.5)
+            completion_rate = effective_success / total if total > 0 else 0.5            
+            # Logic for 'last_minute_ratio': 
+            # Tasks finished within 2 hours of deadline / total kept tasks
+            last_minute_count = 0
+            for c in all_commits:
+                if c.status == 'kept' and c.assignment:
+                    # Assuming you have a 'completed_at' timestamp
+                    if c.completed_at and (c.assignment.due_date - c.completed_at).total_seconds() < 7200:
+                        last_minute_count += 1
+            
+            last_minute_ratio = last_minute_count / kept if kept > 0 else 0.2
+
+            # 3. Update or Create the StudentBehavior record
+            behavior = session.query(StudentBehavior).filter_by(student_id=student_id).first()
+            
+            if not behavior:
+                behavior = StudentBehavior(student_id=student_id)
+                session.add(behavior)
+
+            behavior.last_minute_ratio = last_minute_ratio
+
+            in_progress_count = session.query(Commitment).filter_by(
+                student_id=student_id, 
+                status='in_progress'
+            ).count()
+
+            # If they just started a task, we SLASH the risk score manually 
+            # to override the Random Forest's "Deadline Pressure" bias.
+            if in_progress_count > 0:
+                behavior.engagement_intensity = 1.0  
+                # We give them a 'perfect' completion rate for the next prediction
+                behavior.completion_rate = 1.0 
+                logger.info(f"User {student_id} is active. Forcing risk reduction.")
+
+
+            if in_progress > 0:
+                behavior.engagement_intensity = 1.0  # Max engagement
+                behavior.completion_rate = min(1.0, behavior.completion_rate + 0.3) # Artificial temporary boost
+            else:
+                behavior.engagement_intensity = 0.3 # Low engagement if nothing is active
+            
+            new_risk = self.predict_from_database(student_id) # Get new AI score
+
+            # Save this new score so the Nudges can see the drop
+            new_pred = Prediction(
+                student_id=student_id,
+                risk_score=new_risk['risk_score'] / 100,
+                predicted_at=datetime.now(timezone.utc)
+            )
+            session.add(new_pred)
+
+            session.commit()
+            logger.info(f" Updated behavior stats for Student {student_id}: Rate={completion_rate:.2f}")
+            logger.info(f"Risk Discount Applied for Student {student_id}. New Engagement: {behavior.engagement_intensity}")
 # -----------------------------
 # Example usage
 # -----------------------------

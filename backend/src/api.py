@@ -9,7 +9,7 @@ from flask_jwt_extended import (
     JWTManager, create_access_token,
     jwt_required, get_jwt_identity
 )
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .predict import ProcrastinationPredictor
 from .recommender import AdaptiveRecommender
@@ -32,7 +32,7 @@ CORS(
     resources={r"/api/*": {"origins": "http://localhost:5173"}},    
     supports_credentials=True,
     allow_headers=["Content-Type", "Authorization"],
-    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 )
 
 app.config["JWT_SECRET_KEY"] = "SUPER_SECRET_KEY_CHANGE_THIS"
@@ -270,14 +270,24 @@ def create_commitment():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 422
 
-@app.route(f"{API_PREFIX}/students/<int:student_id>/stats", methods=["GET"])
+@app.route('/api/v1/commitments/<int:commit_id>/start', methods=['PATCH'])
 @jwt_required()
-def get_student_stats(student_id):
-    auth = authorize_student(student_id)
-    if auth:
-        return auth
-
-    return jsonify(commitment_system.get_student_stats(student_id))
+def start_commitment(commit_id):
+    with get_db_session() as session:
+        commitment = session.get(Commitment, commit_id)
+        if not commitment:
+            return jsonify({"error": f"Commitment {commit_id} not found"}), 404
+            
+        # Update status
+        commitment.status = 'in_progress'
+        commitment.started_at = datetime.now(timezone.utc)
+        
+        session.commit()
+        #  KEY: Tell the AI that the user responded to the nudge!
+        predictor.refresh_behavior_stats(commitment.student_id)
+        
+        session.commit()
+        return jsonify({"success": True, "message": "Task started"})
 
 # =========================
 # BUDDY COMMITMENTS
@@ -315,6 +325,17 @@ def get_buddy_commitments():
             
         return jsonify({"success": True, "commitments": results})
 
+# =========================
+# STUDENT STATS
+# =========================
+@app.route(f"{API_PREFIX}/students/<int:student_id>/stats", methods=["GET"])
+@jwt_required()
+def get_student_stats(student_id):
+    auth = authorize_student(student_id)
+    if auth:
+        return auth
+
+    return jsonify(commitment_system.get_student_stats(student_id))
 
 # =========================
 # ACCOUNTABILITY PARTNER
@@ -510,7 +531,9 @@ def verify_commitment(token, action):
             commitment.is_verified_by_buddy = True
         elif action == "broken":
             commitment.status = "failed"
-            
+        
+        predictor.refresh_behavior_stats(commitment.student_id)
+
         session.commit()
         return jsonify({"success": True})
 

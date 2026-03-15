@@ -7,8 +7,8 @@ import {
 import { Badge } from "../../components/ui/badge";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Clock, CheckCircle2, AlertCircle, Sparkles } from "lucide-react";
-import type { Reminder } from "../../App";
 import { StressMeter } from "../../components/ProgressOverview";
+import { useTasks } from "@/context/TaskContext";
 
 const priorityColors = {
   High: "bg-red-100 text-red-700 border-red-200",
@@ -16,14 +16,11 @@ const priorityColors = {
   Low: "bg-green-100 text-green-700 border-green-200",
 };
 
-interface TodayViewProps {
-  reminders: Reminder[];
-  toggleReminder: (id: number) => void;
-}
 
-export function TodayView({ reminders, toggleReminder }: TodayViewProps) {
+export function TodayView() {
+  const {commitments, toggleReminder}= useTasks()
   const today = new Date().toISOString().split("T")[0];
-  const todayReminders = reminders.filter((r) => r.date === today);
+  const todayReminders = commitments.filter((r) => r.date === today);
 
   const completedCount = todayReminders.filter((t) => t.completed).length;
   const totalCount = todayReminders.length;
