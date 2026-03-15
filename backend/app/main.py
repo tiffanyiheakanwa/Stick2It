@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from fastapi_utils.tasks import repeat_every
+from fastapi_utilities import repeat_every
 from backend.src.nudge_system import SmartNudgeSystem
 from backend.src.logger import logger
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,15 +7,69 @@ from fastapi.responses import HTMLResponse
 from backend.src.commitment_system import CommitmentSystem
 from backend.app.database import get_db_session
 from backend.app.models import Student, Commitment
+from itsdangerous import SignatureExpired, BadSignature
+from backend.app.config import serializer, SECURITY_SALT
+import time
 
 app = FastAPI()
 nudge_service = SmartNudgeSystem()
 router = APIRouter()
 commitment_manager = CommitmentSystem()
 
+def notify_admins(error_message: str):
+    """
+    Alerting logic: Replace this with an actual email, 
+    Slack webhook, or monitoring service (e.g., Sentry).
+    """
+    logger.critical(f"🚨 ADMIN ALERT: Nudge Cycle Failure: {error_message}")
+    # Example: send_admin_email("Nudge System Error", error_message)
+
+@app.on_event("startup")
+@repeat_every(seconds=60 * 60)  # Run every 1 hour
+def automated_nudge_monitoring():
+    logger.info("🚀 Starting background nudge monitoring cycle...")
+    
+    max_retries = 3
+    retry_delay = 5  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            with get_db_session() as session:
+                student_ids = [s.id for s in session.query(Student.id).filter(Student.no_nudges == False).all()]                
+                for s_id in student_ids:
+                    try:
+                        nudge_service.check_and_send_nudges(s_id)
+                        nudge_service.trigger_streak_protection_cycle(s_id)
+                    except Exception as student_error:
+                        # Log individual student failures but continue the cycle
+                        logger.error(f"❌ Error for student {s_id}: {student_error}")
+            
+            logger.info("✅ Background nudge monitoring cycle complete.")
+            break  # Success! Exit the retry loop.
+
+        except Exception as cycle_error:
+            # Handle transient DB or system errors
+            logger.warning(f"⚠️ Attempt {attempt + 1} failed: {cycle_error}")
+            
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+            else:
+                # Critical failure after all retries
+                error_details = f"All {max_retries} attempts failed. Last error: {str(cycle_error)}"
+                notify_admins(error_details)
+
 # --- NEW BUDDY ROUTE ---
 @app.get("/verify/{token}", response_class=HTMLResponse)
 async def buddy_verification_page(token: str):
+    try:
+        commitment_id = serializer.loads(
+            token, 
+            salt=SECURITY_SALT, 
+            max_age=172800  # 48 hours in seconds
+        )
+    except (SignatureExpired, BadSignature):
+        return "<h1>Link Expired or Invalid</h1><p>This verification link is no longer valid.</p>"
+
     with get_db_session() as session:
         # Check if the token exists
         commitment = session.query(Commitment).filter(Commitment.verification_token == token).first()
@@ -53,32 +107,6 @@ async def process_broken(token: str):
             commitment_manager._process_failure(session, commitment)
             return "<h1>Penalty Executed</h1><p>The stake has been deducted. Accountability works!</p>"
     return "<h1>Error</h1><p>Commitment not found.</p>"
-
-@app.on_event("startup")
-@repeat_every(seconds=60 * 60)  # Run every 1 hour
-def automated_nudge_monitoring():
-    """
-    Background task that iterates through all students to check 
-    risk levels and send JIT (Just-in-Time) nudges.
-    """
-    logger.info("🚀 Starting background nudge monitoring cycle...")
-    
-    with get_db_session() as session:
-        # Fetch all students who haven't opted out of nudges
-        students = session.query(Student).filter(Student.no_nudges == False).all()
-        
-        for student in students:
-            try:
-                # 1. Check for behavioral risks and send dynamic nudges
-                nudge_service.check_and_send_nudges(student.id)
-                
-                # 2. Specifically check for streaks at risk (Loss Aversion)
-                nudge_service.trigger_streak_protection_cycle(student.id)
-                
-            except Exception as e:
-                logger.error(f"❌ Error during background nudge for student {student.id}: {e}")
-
-    logger.info("✅ Background nudge monitoring cycle complete.")
 
 @app.get("/")
 def home():

@@ -227,15 +227,18 @@ class ProcrastinationPredictor:
             
             new_risk = self.predict_from_database(student_id) # Get new AI score
 
-            # Save this new score so the Nudges can see the drop
-            new_pred = Prediction(
-                student_id=student_id,
-                risk_score=new_risk['risk_score'] / 100,
-                predicted_at=datetime.now(timezone.utc)
-            )
-            session.add(new_pred)
+            risk_value = new_risk.get('risk_score') or new_risk.get('probability_high_risk') or 0.5
+    
+            from backend.app.models import Prediction
+            with get_db_session() as session:
+                new_pred = Prediction(
+                    student_id=student_id,
+                    risk_score=float(risk_value), # Ensure it's a float
+                    predicted_at=datetime.now(timezone.utc)
+                )
+                session.add(new_pred)
 
-            session.commit()
+                session.commit()
             logger.info(f" Updated behavior stats for Student {student_id}: Rate={completion_rate:.2f}")
             logger.info(f"Risk Discount Applied for Student {student_id}. New Engagement: {behavior.engagement_intensity}")
 # -----------------------------

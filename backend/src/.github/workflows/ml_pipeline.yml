@@ -1,0 +1,49 @@
+name: ML Retraining Pipeline
+
+on:
+  schedule:
+    # Runs at 00:00 every Sunday
+    - cron: '0 0 * * 0'
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/src/**'
+      - 'data/processed/**'
+  workflow_dispatch: # Allows you to run it manually from the Actions tab
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/src/requirements.txt
+          # Ensure ML dependencies are present
+          pip install pandas numpy scikit-learn joblib sqlalchemy itsdangerous python-dotenv
+
+      - name: Run Retraining Script
+        env:
+          # Use secrets for sensitive DB or API keys if needed
+          STICK2IT_SECRET_KEY: ${{ secrets.STICK2IT_SECRET_KEY }}
+        run: |
+          python backend/src/train_model.py
+
+      - name: Commit and Push Updated Model
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add backend/src/models/rf_procrastination_model.pkl
+          git add backend/src/models/model_metadata.json
+          git commit -m "🤖 Auto-retrained model: $(date +'%Y-%m-%d')" || echo "No changes to commit"
+          git push

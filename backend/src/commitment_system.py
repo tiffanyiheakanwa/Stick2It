@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from backend.app.database import get_db_session
 from backend.app.models import Assignment, Commitment, StudentPoints, Student, Nudge
 from .logger import logger
+from backend.app.config import serializer, SECURITY_SALT
 
 class CommitmentSystem:
     def __init__(self):
@@ -209,6 +210,12 @@ class CommitmentSystem:
             subject = f" {student_name} kept their commitment!"
             body = f"They finished {commitment.assignment.title}. Great job!"
         self._send_email(commitment.buddy_email, subject, body)
+
+    def generate_verification_link(self, commitment_id: int):
+            # This token is signed and contains the ID
+            token = serializer.dumps(commitment_id, salt=SECURITY_SALT)
+            # In production, use your actual domain
+            return f"http://localhost:8000/verify/{token}"
 
     def _send_email(self, to_email, subject, body):
         """Mock email sender for MVP - prints to console."""

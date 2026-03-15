@@ -10,7 +10,7 @@ SQLALCHEMY_DATABASE_URL = f"sqlite:///{os.path.join(BASE_DIR, '../procrastinatio
 
 # connect_args={"check_same_thread": False} is required for SQLite in FastAPI
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}, pool_pre_ping=True
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

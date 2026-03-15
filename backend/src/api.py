@@ -520,6 +520,7 @@ def get_notifications():
 # VERIFICATION
 # =========================
 @app.route(f"{API_PREFIX}/verify/<string:token>/<string:action>", methods=["POST"])
+
 def verify_commitment(token, action):
     with get_db_session() as session:
         commitment = session.query(Commitment).filter_by(verification_token=token).first()

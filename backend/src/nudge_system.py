@@ -66,13 +66,30 @@ class SmartNudgeSystem:
 }
     
     def _can_send(self, student_id, nudge_type):
-        key = (student_id, nudge_type)
-        last = self.sent_cache.get(key)
+        """
+        Checks if a nudge can be sent based on frequency caps:
+        1. No more than 2 nudges total in 24 hours across all categories.
+        2. No duplicate of the same nudge type in 24 hours.
+        """
+        now = datetime.utcnow()
+        day_ago = now - timedelta(hours=24)
 
-        if not last:
-            return True
+        # 1. Global Cap: Count all nudges sent to this student in the last 24h
+        recent_nudges = [
+            timestamp for (uid, ntype), timestamp in self.sent_cache.items()
+            if uid == student_id and timestamp > day_ago
+        ]
 
-        return datetime.utcnow() - last > timedelta(hours=24)
+        if len(recent_nudges) >= 2:
+            logger.info(f"Nudge cap reached for student {student_id} (2 nudges in 24h).")
+            return False
+
+        # 2. Category Cap: Check specific nudge type for this student
+        last_sent_type = self.sent_cache.get((student_id, nudge_type))
+        if last_sent_type and (now - last_sent_type < timedelta(hours=24)):
+            return False
+
+        return True
 
     def _mark_sent(self, student_id, nudge_type):
         self.sent_cache[(student_id, nudge_type)] = datetime.utcnow()
@@ -85,6 +102,15 @@ class SmartNudgeSystem:
             # 1. Fetch Student, Points, and Risk Data
             student = session.query(Student).get(student_id)
             points = session.query(StudentPoints).filter_by(student_id=student_id).first()
+            behavior = session.query(StudentBehavior).filter_by(student_id=student_id).first()
+
+            if behavior and behavior.last_login:
+                # Calculate actual days since last login
+                days_inactive = (datetime.utcnow() - behavior.last_login).days
+            else:
+                # Fallback to 0 or 1 if no record exists
+                days_inactive = 0
+
             try: 
                 risk_data = self.predictor.predict_from_database(student_id)
                 p_fail = risk_data.get('risk_score', 50) /100.0
@@ -111,10 +137,23 @@ class SmartNudgeSystem:
                 # 3. Calculate time-based variables FIRST
                 target_date = commit.assignment.due_date if commit.assignment else commit.committed_datetime
                 hours_left = int((target_date - now).total_seconds() / 3600)
+                if commit.assignment_id:
+                    # Count total students committed to this assignment
+                    total_cohort = session.query(Commitment).filter(
+                        Commitment.assignment_id == commit.assignment_id
+                    ).count()
+                    
+                    # Count those who have already completed it
+                    completed_cohort = session.query(Commitment).filter(
+                        Commitment.assignment_id == commit.assignment_id,
+                        Commitment.status == 'kept'
+                    ).count()
+                    
+                    # Calculate percentage (default to 0 if no one else has committed)
+                    completion_percent = int((completed_cohort / total_cohort) * 100) if total_cohort > 0 else 0
+                else:
+                    completion_percent = 0
             
-            # Simple inactive days calc (Assuming you have a last_login field)
-            # days_inactive = (now - student.last_login).days if student.last_login else 0
-                days_inactive = 1 # Placeholder if field doesn't exist yet
                 self._log_prediction(session, student_id, commit.assignment_id, p_fail)
 
                 nudge_context = {
@@ -126,7 +165,7 @@ class SmartNudgeSystem:
                     'buddy': commit.buddy_name,
                     'penalty': commit.penalty_message,
                     'days': days_inactive, 
-                    'percent': 85 # Mock social proof value
+                    'percent': completion_percent
                 }
 
 
@@ -137,7 +176,7 @@ class SmartNudgeSystem:
                     else:
                         category = 'loss_aversion'
 
-                    if category in self.nudge_templates:
+                    if self._can_send(student_id, category):
                         template = random.choice(self.nudge_templates[category])
                         message = template.format(**nudge_context)
                         
@@ -161,12 +200,12 @@ class SmartNudgeSystem:
                 )
             return nudges_to_send
 
-    def _check_inactivity(self, student_id, behavior):
+    def _check_inactivity(self, session, student_id, behavior):
         """Check if student has been inactive"""
         nudges = []
         
         # Get last activity
-        last_progress = self.session.query(StudentProgress).filter(
+        last_progress = session.query(StudentProgress).filter(
             StudentProgress.id_student == student_id
         ).order_by(StudentProgress.started_at.desc()).first()
         
@@ -175,7 +214,7 @@ class SmartNudgeSystem:
             
             # Nudge after 3+ days of inactivity (based on Himmler et al., 2019)
             if days_inactive >= 3:
-                points = self.session.query(StudentPoints).filter(
+                points = session.query(StudentPoints).filter(
                     StudentPoints.id_student == student_id
                 ).first()
                 
@@ -198,13 +237,13 @@ class SmartNudgeSystem:
         
         return nudges
     
-    def _check_deadlines(self, student_id):
+    def _check_deadlines(self, session, student_id):
         """Check for approaching deadlines"""
         logger.info(f"Checking deadlines for student {student_id}")
         nudges = []
         
         # Get active commitments
-        upcoming = self.session.query(Commitment, LearningContent).join(
+        upcoming = session.query(Commitment, LearningContent).join(
             LearningContent, Commitment.content_id == LearningContent.id
         ).filter(
             and_(
@@ -460,7 +499,7 @@ class SmartNudgeSystem:
                         self._send_personalized_alert(session, points.student_id, "STREAK_PROTECTION", message)
                         logger.info(f" Streak protection nudge sent to student {points.student_id}")
 
-    def _send_personalized_alert(self, session, student_id, nudge_type, message, assignment_id=None):
+    def _send_personalized_alert(self, session, student_id, nudge_type, message, assignment_id=None, commitment_id=None):
         """
         Logs the nudge in the database for AI training and triggers delivery.
         """
@@ -469,6 +508,7 @@ class SmartNudgeSystem:
             new_nudge = Nudge(
                 student_id=student_id,
                 assignment_id=assignment_id,
+                commitment_id= commitment_id,
                 message=message,
                 nudge_type=nudge_type,
                 sent_at=datetime.utcnow()
