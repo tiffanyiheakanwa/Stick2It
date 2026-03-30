@@ -17,9 +17,17 @@ export function WelcomeCard({ reminders }: WelcomeCardProps) {
   const today = new Date();
   const dayOfWeek = today.toLocaleDateString("en-US", { weekday: "long" });
   const todayString = today.toISOString().split("T")[0];
-  const todayReminders = reminders.filter(
-    (r) => r.date === todayString && !r.completed,
-  );
+  const todayReminders = reminders.filter((r: any) => {
+    // Accommodate both legacy UI Reminder and new Backend Commitment schemas
+    const itemDateStr = r.deadline || r.committed_datetime || r.date;
+    if (!itemDateStr) return false;
+    
+    // Parse it and extract YYYY-MM-DD
+    const itemDate = new Date(itemDateStr).toISOString().split("T")[0];
+    
+    const isPending = r.status === "pending" || r.completed === false;
+    return itemDate === todayString && isPending;
+  });
   const message =
     motivationMessages[Math.floor(Math.random() * motivationMessages.length)];
 

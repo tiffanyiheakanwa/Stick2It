@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+      {
+          "label": "1. Celery Worker",
+          "type": "shell",
+          "command": "python -m celery -A backend.app.tasks worker --loglevel=info -P solo",
+          "isBackground": true,
+          "presentation": {
+              "group": "stick2it-group",
+              "panel": "dedicated"
+          }
+      },
+      {
+          "label": "2. FastAPI Backend",
+          "type": "shell",
+          "command": "python -m uvicorn backend.app.main:app --reload --port 8000",
+          "isBackground": true,
+          "presentation": {
+              "group": "stick2it-group",
+              "panel": "dedicated"
+          }
+      },
+      {
+          "label": "3. React Frontend",
+          "type": "shell",
+          "command": "cd stick2it-frontend; npm run dev",
+          "isBackground": true,
+          "presentation": {
+              "group": "stick2it-group",
+              "panel": "dedicated"
+          }
+      },
+      {
+          "label": "🚀 START ALL SERVICES",
+          "dependsOn": [
+              "1. Celery Worker",
+              "2. FastAPI Backend",
+              "3. React Frontend"
+          ],
+          "group": {
+              "kind": "build",
+              "isDefault": true
+          }
+      }
+  ]
+}

@@ -5,12 +5,13 @@ import { DashboardHeader } from "./components/header/DashboardHeader.tsx";
 import { BuddyHeader } from "./components/header/BuddyHeader.tsx";
 import { DashboardView } from "./view/dashboard/DashboardView";
 import { RemindersView } from "./view/dashboard/RemindersView";
-import { TodayView } from "./view/dashboard/TodayView";
+// import { TodayView } from "./view/dashboard/TodayView";
 import { AISuggestionsView } from "./view/dashboard/AISuggestionsView";
 import { AuthLoginView } from "./view/auth/AuthLoginView";
 import { AuthSignupView } from "./view/auth/AuthSignupView";
 import { BuddyView } from "@/view/dashboard/BuddyView";
 import { useTasks } from './context/TaskContext.tsx';
+import { Toaster } from "react-hot-toast";
 
 export interface Reminder {
   id: number;
@@ -79,8 +80,8 @@ export default function App() {
         return <BuddyView />;
       case "reminders":
         return <RemindersView />;
-      case "today":
-        return <TodayView />;
+      // case "today":
+      //   return <TodayView />;
       case "ai":
         return <AISuggestionsView />;
       default:
@@ -90,6 +91,17 @@ export default function App() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-gradient-to-br from-indigo-600 via-indigo-500 to-purple-600">
+      <Toaster 
+        position="top-right" 
+        toastOptions={{
+          duration: 5000,
+          style: {
+            background: '#333',
+            color: '#fff',
+          },
+        }} 
+      />
+      
       {isAuthenticated && (
         <LegacySidebar
           activeSection={activeSection}

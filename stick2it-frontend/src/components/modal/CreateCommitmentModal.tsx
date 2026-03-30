@@ -34,7 +34,7 @@ export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, toke
   useEffect(() => {
     const fetchPartners = async () => {
       try {
-        const response = await fetch("http://localhost:5000/api/v1/partners", {
+        const response = await fetch("http://localhost:8000/api/v1/partners", {
           headers: { "Authorization": `Bearer ${token}` }
         });
         const data = await response.json();
@@ -61,7 +61,7 @@ export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, toke
     setLoading(true);
     
     try {
-      const response = await fetch("http://localhost:5000/api/v1/commitments", {
+      const response = await fetch("http://localhost:8000/api/v1/commitments", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

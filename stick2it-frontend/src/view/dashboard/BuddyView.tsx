@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { AlertCircle, CheckCircle2, XCircle } from "lucide-react";
 import { useTasks } from '../../context/TaskContext';
+import toast from 'react-hot-toast';
 
 export function BuddyView() {
   const { supervisedTasks, handleVerify, refreshData, token, studentId } = useTasks();
@@ -21,10 +22,15 @@ export function BuddyView() {
     setConfirmingTask(task);
   };
 
-  const executeBrokenAction = () => {
+  const executeBrokenAction = async () => {
     if (confirmingTask) {
-      handleVerify(confirmingTask.verification_token, 'broken');
-      setConfirmingTask(null);
+      try {
+        await handleVerify(confirmingTask.verification_token, 'broken');
+        toast.error(`Marked ${confirmingTask.title} as broken. Penalty applied.`);
+        setConfirmingTask(null);
+      } catch (err) {
+        toast.error("Failed to update task.");
+      }
     }
   };
 
@@ -60,10 +66,20 @@ export function BuddyView() {
                   </TableCell>
                   <TableCell>${c.stake}</TableCell>
                   <TableCell className="text-right flex justify-end gap-2">
-                    <Button size="sm" variant="outline" className="text-green-600" onClick={() => handleVerify(c.verification_token, 'kept')}>
+                    <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="text-green-600" 
+                    onClick={async () => {
+                      await handleVerify(c.verification_token, 'kept');
+                      toast.success(`${c.owner_name}'s task verified!`);}}>
                       <CheckCircle2 className="w-4 h-4 mr-1" /> Kept
                     </Button>
-                    <Button size="sm" variant="outline" className="text-red-600" onClick={() => triggerBrokenConfirmation(c)}>
+                    <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="text-red-600" 
+                    onClick={() => triggerBrokenConfirmation(c)}>
                       <XCircle className="w-4 h-4 mr-1" /> Broken
                     </Button>
                   </TableCell>

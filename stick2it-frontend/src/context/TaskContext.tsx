@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-const API_BASE_URL = "http://localhost:5000/api/v1";
+const API_BASE_URL = "http://localhost:8000/api/v1";
 
 interface TaskContextType {
   studentId: number | null;
@@ -11,6 +11,10 @@ interface TaskContextType {
   nudges: any[];
   loading: boolean;
   supervisedTasks: any[];
+  notifications: any[];
+  streak: number;
+  points: number;
+  stressScore: number;
   globalTaskInput: string;
   isSaving: boolean;
   login: (token: string, student: any) => void;
@@ -21,6 +25,7 @@ interface TaskContextType {
   setGlobalTaskInput: (value: string) => void;
   addReminder: (title: string, time: string, priority?:string)=> Promise<void>;
   toggleReminder: (id:number) => void;
+  handleRespond: (id: number, action: 'accept' | 'refuse') => Promise<void>;
 }
 
 const TaskContext = createContext<TaskContextType | undefined>(undefined);
@@ -33,6 +38,10 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [nudges, setNudges] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [supervisedTasks, setSupervisedTasks] = useState<any[]>([]);
+  const [streak, setStreak] = useState(0);
+  const [points, setPoints] = useState(0);
+  const [stressScore, setStressScore] = useState(0);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [globalTaskInput, setGlobalTaskInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
@@ -78,23 +87,34 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshData = async () => {
     if (!token || !studentId) return;
     try {
-      const [statsRes, nudgeRes, buddyRes] = await Promise.all([
-        fetch(`http://localhost:5000/api/v1/students/${studentId}/stats`, {
+      const [statsRes, nudgeRes, buddyRes, predictRes, notifRes] = await Promise.all([
+        fetch(`http://localhost:8000/api/v1/students/${studentId}/stats`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        fetch(`http://localhost:5000/api/v1/students/${studentId}/nudges`, {
+        fetch(`http://localhost:8000/api/v1/students/${studentId}/nudges`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        // Fetch the tasks where YOU are the buddy
-        fetch(`http://localhost:5000/api/v1/buddy/commitments`, {
+        fetch(`http://localhost:8000/api/v1/buddy/commitments`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        fetch(`http://localhost:8000/api/v1/students/${studentId}/predict`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        fetch(`http://localhost:8000/api/v1/notifications`, {
           headers: { Authorization: `Bearer ${token}` }
         })
       ]);
       const statsData = await statsRes.json();
       const nudgeData = await nudgeRes.json();
       const buddyData = await buddyRes.json();
+      const predictData = await predictRes.json();
+      const notifData = await notifRes.json();
       
       setCommitments(statsData.commitments || []);
+      setStreak(statsData.streak || 0);
+      setPoints(statsData.points || 0);
+      setStressScore(predictData.prediction?.probability_high_risk || 0);
+      setNotifications(notifData.notifications || []);
       setNudges(nudgeData.nudges || []);
       setSupervisedTasks(buddyData.commitments || [])
     } catch (err) {
@@ -105,7 +125,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const handleVerify = async (vToken: string, action: 'kept' | 'broken') => {
     if (!token) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/v1/verify/${vToken}/${action}`, {
+      const res = await fetch(`http://localhost:8000/api/v1/verify/${vToken}/${action}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -118,6 +138,25 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (error) {
       console.error("Verification failed:", error);
+    }
+  };
+
+  const handleRespond = async (id: number, action: 'accept' | 'refuse') => {
+    if (!token) return;
+    try {
+      const response = await fetch(`http://localhost:8000/api/v1/notifications/${id}/respond`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`, 
+          'Content-Type': 'application/json' 
+        },
+        body: JSON.stringify({ action })
+      });
+      if (response.ok) {
+        await refreshData();
+      }
+    } catch (err) {
+      console.error("Error responding to request");
     }
   };
 
@@ -176,7 +215,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!token) return;
     console.log(" Attempting to start task ID:", assignmentId); 
     try {
-      const res = await fetch(`http://localhost:5000/api/v1/commitments/${assignmentId}/start`, {
+      const res = await fetch(`http://localhost:8000/api/v1/commitments/${assignmentId}/start`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -200,7 +239,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <TaskContext.Provider value={{ studentId, token, isAuthenticated: !!token, 
-      currentStudent,commitments, nudges, loading, login, logout, refreshData, supervisedTasks, handleVerify, startTask, toggleReminder, addReminder, 
+      currentStudent,commitments, nudges, loading, login, logout, refreshData, supervisedTasks, streak, points, stressScore, notifications, handleVerify, handleRespond, startTask, toggleReminder, addReminder, 
       globalTaskInput, 
       setGlobalTaskInput, 
       isSaving }}>

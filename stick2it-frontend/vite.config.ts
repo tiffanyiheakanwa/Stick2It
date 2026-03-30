@@ -11,7 +11,15 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
+      'react': path.resolve(__dirname, './node_modules/react'),
+      'react-dom': path.resolve(__dirname, './node_modules/react-dom'),
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    fs: {
+      // This prevents Vite from searching for dependencies outside the frontend folder
+      allow: ['.']
+    }
+  }
 });

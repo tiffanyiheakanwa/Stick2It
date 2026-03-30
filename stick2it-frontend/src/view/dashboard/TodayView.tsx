@@ -7,7 +7,6 @@ import {
 import { Badge } from "../../components/ui/badge";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Clock, CheckCircle2, AlertCircle, Sparkles } from "lucide-react";
-import { StressMeter } from "../../components/ProgressOverview";
 import { useTasks } from "@/context/TaskContext";
 
 const priorityColors = {
@@ -34,7 +33,7 @@ export function TodayView() {
         </p>
       </div>
 
-      <StressMeter pFail={0.15} />
+
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         <Card>

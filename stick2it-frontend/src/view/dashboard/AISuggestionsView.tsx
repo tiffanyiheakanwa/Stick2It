@@ -1,42 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { Sparkles, Brain, Lightbulb, TrendingUp, ArrowRight } from "lucide-react";
+import { Sparkles, Brain, Lightbulb, TrendingUp, ArrowRight, Loader2 } from "lucide-react";
 import { useTasks } from "../../context/TaskContext";
+import { useEffect, useState } from "react";
 
-const recommendations = [
-  {
-    id: 1,
-    icon: Brain,
-    type: "optimization",
-    title: "Optimize your study schedule",
-    description: "Based on your patterns, you're most productive between 2-4 PM. Try scheduling important tasks during this window.",
-    action: "Apply Schedule",
-  },
-  {
-    id: 2,
-    icon: Lightbulb,
-    type: "suggestion",
-    title: "Break down large tasks",
-    description: "Your project deadline is approaching. I can help break it into smaller, manageable tasks with reminders.",
-    action: "Create Tasks",
-  },
-  {
-    id: 3,
-    icon: TrendingUp,
-    type: "insight",
-    title: "Improve completion rate",
-    description: "You tend to skip evening tasks. Consider rescheduling them to morning when you're 40% more likely to complete them.",
-    action: "Reschedule",
-  },
-  {
-    id: 4,
-    icon: Sparkles,
-    type: "automation",
-    title: "Automate recurring reminders",
-    description: "I noticed you create similar reminders weekly. Want me to set up automatic recurring reminders?",
-    action: "Set Up Automation",
-  },
-];
 
 const typeColors = {
   optimization: "border-blue-200",
@@ -53,54 +20,101 @@ const iconColors = {
 };
 
 export function AISuggestionsView() {
-  const { addReminder } = useTasks()
-  const handleActionClick = (rec: typeof recommendations[0]) => {
-    if (rec.id === 2) {
-      // Break down large tasks
-      addReminder("Research project topic", "Tomorrow, 9:00 AM", "High");
-      addReminder("Create project outline", "Dec 17, 10:00 AM", "High");
-      addReminder("Draft first section", "Dec 18, 2:00 PM", "Medium");
-      alert("Created 3 sub-tasks for your project!");
-    } else if (rec.id === 4) {
-      // Set up automation
-      addReminder("Weekly review session", "Every Monday, 9:00 AM", "Medium");
-      alert("Automated recurring reminder created!");
-    } else {
-      alert(`Applied: ${rec.title}`);
+  const { addReminder, studentId, token } = useTasks();
+  const [recommendations, setRecommendations] = useState<any[]>([]);
+  const [strategy, setStrategy] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadRecommendations() {
+      if (!studentId || !token) return;
+      try {
+        const response = await fetch(`http://localhost:8000/api/v1/students/${studentId}/recommendations`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        
+        // Map backend topic to UI types
+        const mapped = (data.recommendations || []).map((rec: any) => {
+          let type = "optimization";
+          let icon = Brain;
+          let description = `Estimated time: ${rec.minutes} mins. Great for your current module: ${rec.module}`;
+          
+          if (rec.topic.includes("Goal")) {
+            type = "suggestion"; icon = Lightbulb;
+          } else if (rec.topic.includes("Mindset")) {
+            type = "insight"; icon = TrendingUp;
+          } else if (rec.topic.includes("Focus")) {
+            type = "automation"; icon = Sparkles;
+          }
+          
+          return {
+            ...rec,
+            icon,
+            type,
+            description,
+            action: "Add to Reminders"
+          }
+        });
+
+        setRecommendations(mapped);
+        setStrategy(data.strategy);
+      } catch (err) {
+        console.error("Failed to fetch recommendations");
+      } finally {
+        setLoading(false);
+      }
     }
+    loadRecommendations();
+  }, [studentId, token]);
+
+  const handleActionClick = (rec: any) => {
+    // Add the AI task to reminders
+    addReminder(`Complete Module: ${rec.title}`, "Today", "High");
+    alert(`Added "${rec.title}" to your reminders!`);
   };
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-gray-900 mb-2">AI Suggestions</h2>
-        <p className="text-gray-600 text-sm md:text-base">Personalized recommendations to boost your productivity</p>
+        <p className="text-gray-600 text-sm md:text-base">
+          {strategy ? `Strategy: ${strategy}` : "Personalized recommendations to boost your productivity"}
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-        {recommendations.map((rec) => (
-          <Card key={rec.id} className={`border-2 ${typeColors[rec.type as keyof typeof typeColors]}`}>
-            <CardContent className="p-4 md:p-6">
-              <div className="flex items-start gap-3 md:gap-4 mb-4">
-                <div className={`p-2 md:p-3 bg-white rounded-lg ${iconColors[rec.type as keyof typeof iconColors]} flex-shrink-0`}>
-                  <rec.icon className="w-5 h-5 md:w-6 md:h-6" />
+      {loading ? (
+        <div className="flex justify-center p-12">
+          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+          {recommendations.map((rec) => (
+            <Card key={rec.id} className={`border-2 flex flex-col justify-between ${typeColors[rec.type as keyof typeof typeColors]}`}>
+              <CardContent className="p-4 md:p-6 flex-1 flex flex-col">
+                <div className="flex items-start gap-3 md:gap-4 mb-4">
+                  <div className={`p-2 md:p-3 bg-white rounded-lg ${iconColors[rec.type as keyof typeof iconColors]} flex-shrink-0`}>
+                    <rec.icon className="w-5 h-5 md:w-6 md:h-6" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-gray-900 mb-2 font-semibold text-sm md:text-base">{rec.title}</h3>
+                    <p className="text-gray-600 text-sm">{rec.description}</p>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-gray-900 mb-2 text-sm md:text-base">{rec.title}</h3>
-                  <p className="text-gray-600 text-sm">{rec.description}</p>
+                <div className="mt-auto pt-4">
+                  <Button 
+                    onClick={() => handleActionClick(rec)}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm md:text-base"
+                  >
+                    {rec.action}
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
                 </div>
-              </div>
-              <Button 
-                onClick={() => handleActionClick(rec)}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm md:text-base"
-              >
-                {rec.action}
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <Card className="bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-200">
         <CardHeader>

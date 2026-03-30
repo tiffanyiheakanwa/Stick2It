@@ -1,7 +1,7 @@
 import {
   LayoutDashboard,
   CheckSquare,
-  Calendar,
+  // Calendar,
   Sparkles,
   LogOut,
   X,
@@ -11,7 +11,7 @@ import {
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
   { icon: CheckSquare, label: "My Reminders", id: "reminders" },
-  { icon: Calendar, label: "Today", id: "today" },
+  // { icon: Calendar, label: "Today", id: "today" },
   { icon: Sparkles, label: "AI Suggestions", id: "ai" },
   { icon: HeartHandshake, label: "Buddy View", id: "buddy" },
 ];

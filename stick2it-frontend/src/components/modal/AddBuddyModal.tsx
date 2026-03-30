@@ -26,7 +26,7 @@ export function AddBuddyModal({ isOpen, onOpenChange, token }: AdBuddyModalProps
     
     try {
 
-      const response = await fetch("http://localhost:5000/api/v1/partners", {
+      const response = await fetch("http://localhost:8000/api/v1/partners", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -537,7 +537,7 @@ def verify_commitment(token, action):
 
         session.commit()
         return jsonify({"success": True})
-
+        
 # =========================
 # ENTRY POINT
 # =========================

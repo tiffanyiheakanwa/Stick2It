@@ -138,8 +138,16 @@ class CommitmentSystem:
                 Commitment.student_id == student_id
             ).order_by(Commitment.committed_datetime.desc()).all()
             
+            points_record = session.query(StudentPoints).filter(
+                StudentPoints.student_id == student_id
+            ).first()
+            current_streak = points_record.current_streak if points_record else 0
+            total_points = points_record.total_points if points_record else 0
+            
             return {
                 "success": True,
+                "streak": current_streak,
+                "points": total_points,
                 "commitments": [
                     {
                         "id": c.id,

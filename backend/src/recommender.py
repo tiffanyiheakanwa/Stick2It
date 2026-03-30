@@ -1,29 +1,23 @@
 """Adaptive Learning Recommendation Engine"""
-from sqlalchemy import create_engine, and_
-from sqlalchemy.orm import sessionmaker
+from backend.app.database import get_db_session
 from backend.app.models import LearningContent, StudentProgress
 from .predict import ProcrastinationPredictor
 
 class AdaptiveRecommender:
     def __init__(self):
-        engine = create_engine('sqlite:///procrastination.db')
-        Session = sessionmaker(bind=engine)
-        self.session = Session()
         self.predictor = ProcrastinationPredictor()
-    
-    def get_completed_content(self, student_id):
+
+    def get_completed_content(self, session, student_id):
         """Get IDs of completed content"""
-        completed = self.session.query(StudentProgress).filter(
-            and_(
-                StudentProgress.id_student == student_id,
-                StudentProgress.status == 'completed'
-            )
+        completed = session.query(StudentProgress).filter(
+            StudentProgress.student_id == student_id,
+            StudentProgress.status == 'completed'
         ).all()
         return [p.content_id for p in completed]
     
-    def get_available_content(self, completed_ids):
+    def get_available_content(self, session, completed_ids):
         """Get content where prerequisites are met"""
-        all_content = self.session.query(LearningContent).all()
+        all_content = session.query(LearningContent).all()
         available = []
         
         for content in all_content:
@@ -45,43 +39,45 @@ class AdaptiveRecommender:
         # Get risk prediction
         try:
             pred = self.predictor.predict_from_database(student_id)
-            risk = pred['risk_category']
-            score = pred['risk_score']
-        except:
+            risk = pred.get('risk_category', 'medium').lower()
+            score = float(pred.get('risk_score', 50.0))
+        except Exception:
             risk = 'medium'
             score = 50.0
         
         # Get available content
-        completed = self.get_completed_content(student_id)
-        available = self.get_available_content(completed)
+        # Get available content
+        with get_db_session() as session:
+            completed = self.get_completed_content(session, student_id)
+            available = self.get_available_content(session, completed)
         
-        # Recommend based on risk level
-        if risk == 'high':
-            recommendations = self._recommend_high_risk(available, limit)
-            strategy = "Start with shorter, easier tasks to build momentum"
-        elif risk == 'low':
-            recommendations = self._recommend_low_risk(available, limit)
-            strategy = "Challenge yourself with advanced content"
-        else:
-            recommendations = self._recommend_medium_risk(available, limit)
-            strategy = "Balanced progression through material"
-        
-        return {
-            'student_id': student_id,
-            'risk_level': risk,
-            'risk_score': score,
-            'strategy': strategy,
-            'completed': len(completed),
-            'recommendations': [{
-                'id': c.id,
-                'title': c.title,
-                'difficulty': c.difficulty,
-                'minutes': c.estimated_minutes,
-                'topic': c.topic,
-                'module': c.module,
-                'url': c.url
-            } for c in recommendations]
-        }
+            # Recommend based on risk level
+            if risk == 'high':
+                recommendations = self._recommend_high_risk(available, limit)
+                strategy = "Start with shorter, easier tasks to build momentum"
+            elif risk == 'low':
+                recommendations = self._recommend_low_risk(available, limit)
+                strategy = "Challenge yourself with advanced content"
+            else:
+                recommendations = self._recommend_medium_risk(available, limit)
+                strategy = "Balanced progression through material"
+            
+            return {
+                'student_id': student_id,
+                'risk_level': risk,
+                'risk_score': score,
+                'strategy': strategy,
+                'completed': len(completed),
+                'recommendations': [{
+                    'id': c.id,
+                    'title': c.title,
+                    'difficulty': c.difficulty,
+                    'minutes': c.estimated_minutes,
+                    'topic': c.topic,
+                    'module': c.module,
+                    'url': c.url
+                } for c in recommendations]
+            }
     
     def _recommend_high_risk(self, available, limit):
         """For high-risk: easy, short tasks"""

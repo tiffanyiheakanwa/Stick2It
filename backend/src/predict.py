@@ -50,10 +50,10 @@ class ProcrastinationPredictor:
 
         return {
             'prediction': 'high_risk' if prediction == 1 else 'low_risk',
-            'risk_score': round(risk_score, 2),
+            'risk_score': float(round(risk_score, 2)),
             'risk_category': risk_category,
-            'probability_high_risk': round(probability[1], 3),
-            'probability_low_risk': round(probability[0], 3)
+            'probability_high_risk': float(round(probability[1], 3)),
+            'probability_low_risk': float(round(probability[0], 3))
         }
 
     def predict_from_database(self, student_id):

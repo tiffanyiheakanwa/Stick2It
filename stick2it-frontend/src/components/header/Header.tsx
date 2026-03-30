@@ -3,6 +3,7 @@ import { Bell, Flame, Search, Mail, Menu, UserPlus, Check, X } from "lucide-reac
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
+import { useTasks } from "../../context/TaskContext.tsx";
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -10,40 +11,10 @@ interface HeaderProps {
 }
 
 export function Header({ onMenuClick, token }: HeaderProps) {
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const { streak, notifications, handleRespond } = useTasks();
   const unreadCount = notifications.filter(n => n.status === 'unread').length;
 
-  const fetchNotifications = async () => {
-    try {
-      const response = await fetch("http://localhost:5000/api/v1/notifications", {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await response.json();
-      if (data.success) setNotifications(data.notifications);
-    } catch (err) {
-      console.error("Failed to fetch notifications");
-    }
-  };
 
-  useEffect(() => {
-    if (token) fetchNotifications();
-  }, [token]);
-
-  const handleRespond = async (id: number, action: 'accept' | 'refuse') => {
-    try {
-      const response = await fetch(`http://localhost:5000/api/v1/notifications/${id}/respond`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${token}`, 
-          'Content-Type': 'application/json' 
-        },
-        body: JSON.stringify({ action })
-      });
-      if (response.ok) fetchNotifications();
-    } catch (err) {
-      console.error("Error responding to request");
-    }
-  };
 
   return (
     <header className="bg-white px-4 md:px-8 py-4">
@@ -69,11 +40,10 @@ export function Header({ onMenuClick, token }: HeaderProps) {
         </div>
         
         <div className="flex items-center gap-2 md:gap-4 ml-auto">
-          {/* Streak - smaller on mobile */}
           <div className="flex items-center gap-1.5 md:gap-2 bg-orange-50 px-2 md:px-4 py-1.5 md:py-2 rounded-full">
             <Flame className="w-4 h-4 md:w-5 md:h-5 text-orange-500" />
-            <span className="text-orange-700 text-sm md:text-base hidden sm:inline">7 Day Streak</span>
-            <span className="text-orange-700 text-sm sm:hidden">7d</span>
+            <span className="text-orange-700 text-sm md:text-base hidden sm:inline">{streak} Day Streak</span>
+            <span className="text-orange-700 text-sm sm:hidden">{streak}d</span>
           </div>
           
           {/* Mail - hidden on small mobile */}
