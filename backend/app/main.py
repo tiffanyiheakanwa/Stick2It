@@ -17,7 +17,7 @@ from backend.src.recommender import AdaptiveRecommender
 from backend.src.progress import ProgressTracker
 from backend.src.scheduler import start_scheduler
 
-from backend.app.database import get_db_session
+from backend.app.database import get_db_session, SessionLocal
 from backend.app.models import Student, Commitment, Notification, Prediction
 from backend.app.config import serializer, SECURITY_SALT
 from .tasks import process_student_nudge_task
@@ -58,7 +58,7 @@ try:
     progress_tracker = ProgressTracker()
     commitment_manager = CommitmentSystem()
     nudge_service = SmartNudgeSystem()
-    logger.info("✅ Core systems loaded successfully in FastAPI")
+    logger.info("Core systems loaded successfully in FastAPI")
 except Exception as e:
     raise RuntimeError(f"Startup failure: {e}")
 
@@ -576,6 +576,28 @@ async def get_notifications(current_user_id: int = Depends(get_current_user)):
             "success": True, 
             "notifications": notifications_list
         }
+
+nudge_system = SmartNudgeSystem()
+import traceback
+
+@app.get("/test-nudge")
+async def test_nudge():
+    db = SessionLocal()
+    try:
+        success = nudge_system._send_personalized_alert(
+            session=db,
+            student_id=2, 
+            user_email="iheakanwa.tiffany@gmail.com",
+            nudge_type="test_manual",
+            message="Hello! Your AI coach is officially online.",
+            user_name="Tiffany")
+        return {"status": "success", "delivered": success}
+    except Exception as e:
+        # This will print the exact error to your terminal
+        print(traceback.format_exc()) 
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
 
 @app.get("/")
 def home():

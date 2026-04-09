@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 
 const API_BASE_URL = "http://localhost:8000/api/v1";
 
@@ -66,6 +67,46 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
       refreshData();
     }
   }, [token, studentId]);
+
+  useEffect(() => {
+    // Global WebSocket connection for cross-view updates
+    if (!studentId) return;
+    const socket = new WebSocket(`ws://localhost:8000/ws/${studentId}`);
+
+    socket.onopen = () => {
+      console.log("Connected to Stick2It Real-time Sync (Global)");
+    };
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === "COMMITMENT_UPDATED") {
+        console.log(`Global sync: Buddy marked task as ${data.status}!`);
+        refreshData(); 
+
+        if (data.status === "completed") {
+          toast.success((_t) => (
+                  <span>
+                      <b>Task Verified!</b> <br />
+                      Buddy confirmed you finished your task. +{data.points_gained || 10} points!
+                  </span>
+              ),
+              { duration: 5000, icon: '✅' }
+          );
+        } else if (data.status === "failed") {
+          toast.error(
+              "Buddy marked the task as failed. Stake deducted.",
+              { duration: 6000, icon: '⚠️' }
+          );
+        }
+      }
+    };
+
+    socket.onerror = (error) => {
+      console.error("Global WebSocket Error:", error);
+    };
+
+    return () => socket.close();
+  }, [studentId]);
 
   const login = (newToken: string, student: any) => {
     setToken(newToken);

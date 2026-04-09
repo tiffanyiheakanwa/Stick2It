@@ -19,7 +19,26 @@ from backend.app.models import (
 import random
 from backend.app.database import get_db_session
 from backend.app.models import StudentBehavior, Student
-from .predict import ProcrastinationPredictor # Import the ML predictor
+from .predict import ProcrastinationPredictor # 
+import os
+from dotenv import load_dotenv
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
+
+# Use find_dotenv or just check if it exists
+env_path = 'sendgrid.env'
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+else:
+    print(f"Warning: {env_path} not found. Ensure environment variables are set manually.")
+api_key = os.getenv('SENDGRID_API_KEY')
+
+import firebase_admin
+from firebase_admin import messaging, credentials
+
+# Initialize once
+cred = credentials.Certificate("backend/firebase-adminsdk.json")
+firebase_admin.initialize_app(cred)
 
 class SmartNudgeSystem:
     def __init__(self):
@@ -499,10 +518,54 @@ class SmartNudgeSystem:
                         self._send_personalized_alert(session, points.student_id, "STREAK_PROTECTION", message)
                         logger.info(f" Streak protection nudge sent to student {points.student_id}")
 
-    def _send_personalized_alert(self, session, student_id, nudge_type, message, assignment_id=None, commitment_id=None):
+    def _send_sendgrid_email(self, user_email, message):
+        """
+        Core delivery logic for SendGrid.
+        """
+        # 1. Prepare the Mail object
+        sg_mail = Mail(
+            from_email=os.environ.get('SENDER_EMAIL'),
+            to_emails=user_email,
+            subject=f"Action Required: Personalized Insight for {user_name}",
+            plain_text_content=message
+        )
+       
+        try:
+            # 2. Initialize the client with your API Key
+            api_key = os.environ.get('SENDGRID_API_KEY')
+            sg = SendGridAPIClient(api_key)
+            response = sg.send(sg_mail)
+            
+            logger.info(f"SendGrid API Response: {response.status_code}")
+            print(f"Nudge sent to {user_email}. Status Code: {response.status_code}")
+            
+            # SendGrid returns 200, 201, or 202 on success
+            return response.status_code in [200, 201, 202]
+
+        except Exception as e:
+            logger.error(f"SendGrid Network Error: {e}")
+            return False
+
+    def _send_firebase_push(self, registration_token, title, body):
+        message = messaging.Message(
+            notification=messaging.Notification(title=title, body=body),
+            token=registration_token,
+        )
+        response = messaging.send(message)
+        print(f"Successfully sent Firebase message: {response}")
+
+    def _send_personalized_alert(self, session, student_id, user_email, nudge_type, message, user_name= "Student", assignment_id=None, commitment_id=None):
         """
         Logs the nudge in the database for AI training and triggers delivery.
         """
+        self._log_nudge_to_db(session, student_id, nudge_type, message)
+
+        # 2. Routing Logic
+        if "URGENT" in nudge_type or "DEADLINE" in nudge_type:
+            # Use Firebase for immediate attention
+            if fcm_token:
+                self._send_firebase_push(fcm_token, "Stick2It Alert", message)
+            
         try:
             # Create a record in the Nudges table
             new_nudge = Nudge(
@@ -515,15 +578,17 @@ class SmartNudgeSystem:
             )
             session.add(new_nudge)
             session.commit()
-            
-            # TODO: Add your actual email/push notification delivery logic here
-            logger.info(f" Nudge successfully logged for student {student_id}")
+            return True
         except Exception as e:
+            session.rollback()
+            print(f"!!! SENDGRID ERROR: {e}")
             logger.error(f" Failed to log nudge: {e}")
+            print(f"Failed to send nudge to {user_email}: {str(e)}")
+            return False
             
-        except Exception as e:
-            self.session.rollback()
-            logger.error(f" Failed to log nudge: {e}")
+        # Always send an email backup or use it for non-urgent nudges
+        return self._send_sendgrid_email(user_email, message)
+        
 
     def _log_prediction(self, session, student_id, assignment_id, p_fail):
         """

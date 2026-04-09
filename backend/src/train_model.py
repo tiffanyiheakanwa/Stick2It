@@ -5,6 +5,7 @@ import joblib
 import os
 import json
 from datetime import datetime
+from sqlalchemy import create_engine
 from sklearn.ensemble import RandomForestClassifier
 from backend.src.feedback_loop import MLFeedbackLoop
 from backend.src.logger import logger
@@ -76,6 +77,44 @@ def run_training():
         json.dump(metadata, f, indent=4)
 
     logger.info(f"✅ Model successfully retrained and saved to {model_path}")
+
+def fetch_feedback_data(db_uri):
+    engine = create_engine(db_uri)
+    # Only pull records where we have an actual outcome to learn from
+    query = """
+        SELECT feature_1, feature_2, feature_3, actual_outcome 
+        FROM predictions 
+        WHERE actual_outcome IS NOT NULL
+    """
+    feedback_df = pd.read_sql(query, engine)
+    return feedback_df
+
+def train_evolving_model():
+    # 1. Load static baseline data
+    base_data = pd.read_csv('data/baseline_train.csv')
+    
+    # 2. Fetch evolving data from Phase 4 Integration
+    try:
+        feedback_data = fetch_feedback_data("postgresql://user:pass@localhost/db")
+        # Rename columns to match baseline if necessary
+        feedback_data.columns = base_data.columns 
+        
+        # 3. Combine datasets
+        final_train_set = pd.concat([base_data, feedback_data], ignore_index=True)
+        print(f"Retraining with {len(feedback_data)} new feedback samples.")
+    except Exception as e:
+        print(f"Feedback fetch failed, falling back to baseline: {e}")
+        final_train_set = base_data
+
+    # 4. Standard Training Logic
+    X = final_train_set.drop('target', axis=1)
+    y = final_train_set['target']
+    
+    model = RandomForestClassifier()
+    model.fit(X, y)
+    
+    # 5. Save updated model
+    # pickle.dump(model, open('model_v2.pkl', 'wb'))
 
 if __name__ == "__main__":
     run_training()

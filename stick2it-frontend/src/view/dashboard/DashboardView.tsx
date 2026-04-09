@@ -11,12 +11,11 @@ import { NudgesNotifications } from "../../components/NudgesNotifications";
 import StakesAtRiskCard from "@/components/StakesAtRiskCard";
 import { StressMeter } from "../../components/ProgressOverview";
 import { useState, useEffect } from "react";
-import { useTasks } from "../../context/TaskContext"; 
-import toast from 'react-hot-toast';
-
+import { useTasks } from "../../context/TaskContext";
+import { DashboardSkeleton } from "../../components/dashboard/DashboardSkeleton"; 
 
 export function DashboardView() {
-  const { commitments, token, studentId, currentStudent, nudges, refreshData, addReminder, stressScore } = useTasks();
+  const { commitments, token, studentId, currentStudent, nudges, refreshData, addReminder, loading, stressScore } = useTasks();
   const [quickInput, setQuickInput] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [localCommitments, setLocalCommitments] = useState<any[]>([]);
@@ -47,46 +46,7 @@ export function DashboardView() {
     loadData();
   }, [token, studentId]);
 
-  useEffect(() => {
-    // Create WebSocket connection
-    if (!studentId) return;
-    const socket = new WebSocket(`ws://localhost:8000/ws/${studentId}`);
 
-    socket.onopen = () => {
-      console.log("Connected to Stick2It Real-time Sync");
-    };
-
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === "COMMITMENT_UPDATED") {
-        console.log(`Buddy marked task as ${data.status}!`);
-        refreshData(); 
-        loadData(); 
-
-        if (data.status === "completed") {
-          toast.success((_t) => (
-                  <span>
-                      <b>Task Verified!</b> <br />
-                      Buddy confirmed you finished your task. +{data.points_gained || 10} points!
-                  </span>
-              ),
-              { duration: 5000, icon: '✅' }
-          );
-        } else if (data.status === "failed") {
-          toast.error(
-              "Buddy marked the task as failed. Stake deducted.",
-              { duration: 6000, icon: '⚠️' }
-          );
-        }
-      }
-    };
-
-    socket.onerror = (error) => {
-      console.error("WebSocket Error:", error);
-    };
-
-    return () => socket.close();
-  }, [studentId, refreshData]);
 
   // Helper to re-run the specific stats fetch
   const loadData = async () => {
@@ -103,6 +63,10 @@ export function DashboardView() {
       console.error("Dashboard fetch error:", err);
     }
   };
+
+  if (loading) {
+    return <DashboardSkeleton />;
+  }
 
   return (
     <div className="space-y-6">
@@ -132,7 +96,7 @@ export function DashboardView() {
 
       <div className="flex flex-col xl:flex-row gap-5">
         <div className="xl:flex-1 min-w-0">
-          <StakesAtRiskCard commitments={localCommitments} />
+          <StakesAtRiskCard commitments={localCommitments} loading={loading} />
           <NudgesNotifications externalNudges={nudges}/>
         </div>
         <div className="xl:block min-w-0 ">
