@@ -3,6 +3,7 @@ Smart Nudging System - Just-in-Time Adaptive Interventions
 """
 from sqlalchemy import and_, or_
 from datetime import datetime, timedelta
+import datetime 
 import random
 from .logger import logger
 from backend.app.database import get_db_session
@@ -28,17 +29,27 @@ from sendgrid.helpers.mail import Mail
 # Use find_dotenv or just check if it exists
 env_path = 'sendgrid.env'
 if os.path.exists(env_path):
-    load_dotenv(env_path)
+    load_dotenv(os.path.join(os.getcwd(), env_path))
 else:
     print(f"Warning: {env_path} not found. Ensure environment variables are set manually.")
 api_key = os.getenv('SENDGRID_API_KEY')
 
 import firebase_admin
-from firebase_admin import messaging, credentials
+from firebase_admin import messaging, credentials, initialize_app
 
 # Initialize once
-cred = credentials.Certificate("backend/firebase-adminsdk.json")
-firebase_admin.initialize_app(cred)
+# 1. Get the directory where nudge_system.py is located
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# 2. Construct the path to the JSON file (moving up to the backend folder)
+# This assumes nudge_system.py is in backend/src/
+cert_path = os.path.join(current_dir, "..", "firebase-adminsdk.json")
+
+if os.path.exists(cert_path):
+    cred = credentials.Certificate(cert_path)
+    initialize_app(cred)
+else:
+    print(f" Warning: Firebase service account file not found at {cert_path}")
 
 class SmartNudgeSystem:
     def __init__(self):
@@ -90,7 +101,7 @@ class SmartNudgeSystem:
         1. No more than 2 nudges total in 24 hours across all categories.
         2. No duplicate of the same nudge type in 24 hours.
         """
-        now = datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         day_ago = now - timedelta(hours=24)
 
         # 1. Global Cap: Count all nudges sent to this student in the last 24h
@@ -111,7 +122,7 @@ class SmartNudgeSystem:
         return True
 
     def _mark_sent(self, student_id, nudge_type):
-        self.sent_cache[(student_id, nudge_type)] = datetime.utcnow()
+        self.sent_cache[(student_id, nudge_type)] = datetime.datetime.now(datetime.timezone.utc)
 
     def check_and_send_nudges(self, student_id):
         from backend.app.database import get_db_session
@@ -119,13 +130,24 @@ class SmartNudgeSystem:
             logger.info(f" AI Checking risk for student {student_id}")
             
             # 1. Fetch Student, Points, and Risk Data
-            student = session.query(Student).get(student_id)
+            from backend.app.models import Student
+            student = session.get(Student, student_id)
             points = session.query(StudentPoints).filter_by(student_id=student_id).first()
             behavior = session.query(StudentBehavior).filter_by(student_id=student_id).first()
 
             if behavior and behavior.last_login:
                 # Calculate actual days since last login
-                days_inactive = (datetime.utcnow() - behavior.last_login).days
+                # 1. Get current time in UTC
+                now_aware = datetime.datetime.now(datetime.timezone.utc)
+
+                # 2. Strip the timezone info (make it naive)
+                now_naive = now_aware.replace(tzinfo=None)
+
+                # 3. Ensure the database value is also naive (it should be, but this is a safety net)
+                db_last_login = behavior.last_login.replace(tzinfo=None) if behavior.last_login.tzinfo else behavior.last_login
+
+                # 4. Perform the subtraction
+                days_inactive = (now_naive - db_last_login).days
             else:
                 # Fallback to 0 or 1 if no record exists
                 days_inactive = 0
@@ -150,7 +172,7 @@ class SmartNudgeSystem:
                 return []
         
             nudges_to_send = []
-            now = datetime.utcnow()
+            now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
             for commit in active_commitments:
                 # 3. Calculate time-based variables FIRST
@@ -190,10 +212,15 @@ class SmartNudgeSystem:
 
                 # 6. Trigger logic: Threshold of 0.75
                 if p_fail >= 0.75:
-                    if p_fail >= 0.85:
-                        category = 'social_accountability'
+                    pref = getattr(student, 'nudge_preference', 'auto')
+                    
+                    if pref and pref != 'auto' and pref in self.nudge_templates:
+                        category = pref
                     else:
-                        category = 'loss_aversion'
+                        if p_fail >= 0.85:
+                            category = 'social_accountability'
+                        else:
+                            category = 'loss_aversion'
 
                     if self._can_send(student_id, category):
                         template = random.choice(self.nudge_templates[category])
@@ -229,7 +256,7 @@ class SmartNudgeSystem:
         ).order_by(StudentProgress.started_at.desc()).first()
         
         if last_progress:
-            days_inactive = (datetime.utcnow() - last_progress.started_at).days
+            days_inactive = (datetime.datetime.now(datetime.timezone.utc) - last_progress.started_at).days
             
             # Nudge after 3+ days of inactivity (based on Himmler et al., 2019)
             if days_inactive >= 3:
@@ -268,13 +295,13 @@ class SmartNudgeSystem:
             and_(
                 Commitment.id_student == student_id,
                 Commitment.status == 'pending',
-                Commitment.committed_datetime <= datetime.utcnow() + timedelta(hours=24),
-                Commitment.committed_datetime > datetime.utcnow()
+                Commitment.committed_datetime <= datetime.datetime.now(datetime.timezone.utc) + timedelta(hours=24),
+                Commitment.committed_datetime > datetime.datetime.now(datetime.timezone.utc)
             )
         ).all()
         
         for commit, content in upcoming:
-            hours_left = (commit.committed_datetime - datetime.utcnow()).total_seconds() / 3600
+            hours_left = (commit.committed_datetime - datetime.datetime.now(datetime.timezone.utc)).total_seconds() / 3600
             
             message = random.choice(self.nudge_templates['deadline_approaching'])
             message = message.format(
@@ -304,7 +331,7 @@ class SmartNudgeSystem:
             and_(
                 Commitment.id_student == student_id,
                 Commitment.status == 'broken',
-                Commitment.updated_at >= datetime.utcnow() - timedelta(hours=24)
+                Commitment.updated_at >= datetime.datetime.now(datetime.timezone.utc) - timedelta(hours=24)
             )
         ).all()
         
@@ -335,10 +362,10 @@ class SmartNudgeSystem:
         
         # Check if they haven't completed anything today
         if points.last_commitment_date:
-            days_since = (datetime.utcnow().date() - points.last_commitment_date.date()).days
+            days_since = (datetime.datetime.now(datetime.timezone.utc).date() - points.last_commitment_date.date()).days
             
             # Streak at risk if no activity today and it's past 6pm
-            if days_since >= 1 or datetime.utcnow().hour >= 18:
+            if days_since >= 1 or datetime.datetime.now(datetime.timezone.utc).hour >= 18:
                 message = random.choice(self.nudge_templates['loss_aversion'])
                 message = message.format(
                     streak=points.current_streak,
@@ -462,7 +489,7 @@ class SmartNudgeSystem:
         # Calculates a mock Probability of Failure (P_fail).
         # Formula: (Work Required / Time Remaining) adjusted by student's historical success.
         # """
-        # now = datetime.utcnow()
+        # now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         # deadline = commitment.assignment.due_date
         # created_at = commitment.created_at
         
@@ -502,7 +529,7 @@ class SmartNudgeSystem:
                 
                 # FIXED: All logic must stay inside the 'with' block to access 'points'
                 if points and points.current_streak >= 3:
-                    today = datetime.utcnow().date()
+                    today = datetime.datetime.now(datetime.timezone.utc).date()
                     last_activity = points.last_commitment_date.date() if points.last_commitment_date else None
                     
                     # FIXED: Correct indentation so last_activity is recognized
@@ -558,14 +585,23 @@ class SmartNudgeSystem:
         """
         Logs the nudge in the database for AI training and triggers delivery.
         """
+        student = session.query(Student).filter(Student.id == student_id).first()
+
         self._log_nudge_to_db(session, student_id, nudge_type, message)
 
+        success = False
+
         # 2. Routing Logic
-        if "URGENT" in nudge_type or "DEADLINE" in nudge_type:
+        if "URGENT" in nudge_type.upper() or "DEADLINE" in nudge_type.upper():
             # Use Firebase for immediate attention
-            if fcm_token:
-                self._send_firebase_push(fcm_token, "Stick2It Alert", message)
+            if student.fcm_token:
+                success = self._send_firebase_push(student.fcm_token, "Stick2It Alert", message)
             
+        if not success:
+            success = self._send_sendgrid_email(user_email, message)
+            
+        return success
+
         try:
             # Create a record in the Nudges table
             new_nudge = Nudge(
@@ -574,7 +610,7 @@ class SmartNudgeSystem:
                 commitment_id= commitment_id,
                 message=message,
                 nudge_type=nudge_type,
-                sent_at=datetime.utcnow()
+                sent_at=datetime.datetime.now(datetime.timezone.utc)
             )
             session.add(new_nudge)
             session.commit()
@@ -595,13 +631,12 @@ class SmartNudgeSystem:
         Logs every AI calculation. This becomes the training data for Phase 4.
         """
         from backend.app.models import Prediction 
-        from datetime import datetime
 
         new_pred = Prediction(
             student_id=student_id,
             assignment_id=assignment_id,
             risk_score=p_fail,
-            predicted_at=datetime.utcnow()
+            predicted_at=datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         )
         session.add(new_pred)
 

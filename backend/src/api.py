@@ -35,7 +35,7 @@ CORS(
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 )
 
-app.config["JWT_SECRET_KEY"] = "SUPER_SECRET_KEY_CHANGE_THIS"
+app.config["JWT_SECRET_KEY"] = "SUPER_SECRET_KEY_CHANGE_THIS_TO_BE_SECURE"
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
 
 jwt = JWTManager(app)

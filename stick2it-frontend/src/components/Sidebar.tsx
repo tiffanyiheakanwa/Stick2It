@@ -6,6 +6,7 @@ import {
   LogOut,
   X,
   HeartHandshake,
+  Settings,
 } from "lucide-react";
 
 const navItems = [
@@ -14,6 +15,7 @@ const navItems = [
   // { icon: Calendar, label: "Today", id: "today" },
   { icon: Sparkles, label: "AI Suggestions", id: "ai" },
   { icon: HeartHandshake, label: "Buddy View", id: "buddy" },
+  { icon: Settings, label: "Settings", id: "settings" },
 ];
 
 interface SidebarProps {

@@ -7,7 +7,8 @@ import pandas as pd
 import numpy as np
 import re
 import os
-from datetime import datetime, timezone
+import datetime
+from datetime import  timezone
 from backend.app.database import get_db_session
 from backend.app.models import StudentBehavior, Student
 from backend.app.models import Prediction, Commitment 
@@ -83,7 +84,7 @@ class ProcrastinationPredictor:
                     'is_new_user': True
                 }
 
-            now = datetime.utcnow()
+            now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
             features = {
                 'last_minute_ratio': behavior.last_minute_ratio,
@@ -97,7 +98,26 @@ class ProcrastinationPredictor:
                 'day_of_week': now.weekday()  # 0=Monday, 6=Sunday
             }
 
-            return self.predict_risk(features)
+            result = self.predict_risk(features)
+            
+            # Apply dynamic AI feedback based on actual outcomes
+            recent_preds = session.query(Prediction).filter(
+                Prediction.student_id == student_id,
+                Prediction.actual_outcome.isnot(None)
+            ).order_by(Prediction.predicted_at.desc()).limit(3).all()
+            
+            modifier = 0.0
+            for p in recent_preds:
+                if p.actual_outcome == 1:
+                    modifier -= 0.08  # Success reduces risk
+                else:
+                    modifier += 0.12  # Failure increases risk
+            
+            adjusted_prob = max(0.01, min(0.99, result['probability_high_risk'] + modifier))
+            result['probability_high_risk'] = adjusted_prob
+            result['risk_score'] = round(adjusted_prob * 100, 2)
+            
+            return result
 
     def update_all_commitment_risks(self):
         with get_db_session() as session:
@@ -114,7 +134,7 @@ class ProcrastinationPredictor:
                     student_id=c.student_id,
                     assignment_id=c.assignment_id, # Can be None for custom tasks
                     risk_score=prediction_result['probability_high_risk'],
-                    predicted_at=datetime.utcnow()
+                    predicted_at=datetime.datetime.now(datetime.timezone.utc)
                 )
                 session.add(new_pred)
                 print(f" Saved {prediction_result['risk_score']}% risk for: {task_text}")
@@ -124,7 +144,7 @@ class ProcrastinationPredictor:
     # NEW: Task-based prediction
     # -----------------------------
     def predict_from_task(self, task_description: str, student_id:int=None):
-        now = datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
         task_length = len(task_description.split())
     
@@ -140,6 +160,8 @@ class ProcrastinationPredictor:
             'estimated_duration': task_length / 5.0, 
         }
 
+        result = self.predict_risk(features_dict)
+        
         # IMPORTANT: Fetch real student history if available
         if student_id:
             with get_db_session() as session:
@@ -167,7 +189,25 @@ class ProcrastinationPredictor:
                         # 'activity_span': 10.0
                     })
                 
-        return self.predict_risk(features_dict)
+                # Apply explicit outcome feedback to task-level prediction too
+                from backend.app.models import Prediction
+                recent_preds = session.query(Prediction).filter(
+                    Prediction.student_id == student_id,
+                    Prediction.actual_outcome.isnot(None)
+                ).order_by(Prediction.predicted_at.desc()).limit(3).all()
+                
+                modifier = 0.0
+                for p in recent_preds:
+                    if p.actual_outcome == 1:
+                        modifier -= 0.08
+                    else:
+                        modifier += 0.12
+                        
+                adjusted_prob = max(0.01, min(0.99, result['probability_high_risk'] + modifier))
+                result['probability_high_risk'] = adjusted_prob
+                result['risk_score'] = round(adjusted_prob * 100, 2)
+                
+        return result
 
     def refresh_behavior_stats(self, student_id):
         with get_db_session() as session:
@@ -178,7 +218,7 @@ class ProcrastinationPredictor:
                 return
 
             total = len(all_commits)
-            kept = len([c for c in all_commits if c.status == 'kept'])
+            kept = len([c for c in all_commits if c.status in ['kept', 'completed']])
             in_progress = len([c for c in all_commits if c.status == 'in_progress'])
             broken = len([c for c in all_commits if c.status == 'broken'])
             
@@ -189,7 +229,7 @@ class ProcrastinationPredictor:
             # Tasks finished within 2 hours of deadline / total kept tasks
             last_minute_count = 0
             for c in all_commits:
-                if c.status == 'kept' and c.assignment:
+                if c.status in ['kept', 'completed'] and c.assignment:
                     # Assuming you have a 'completed_at' timestamp
                     if c.completed_at and (c.assignment.due_date - c.completed_at).total_seconds() < 7200:
                         last_minute_count += 1
@@ -227,14 +267,14 @@ class ProcrastinationPredictor:
             
             new_risk = self.predict_from_database(student_id) # Get new AI score
 
-            risk_value = new_risk.get('risk_score') or new_risk.get('probability_high_risk') or 0.5
+            risk_value = new_risk.get('probability_high_risk', 0.5)
     
             from backend.app.models import Prediction
             with get_db_session() as session:
                 new_pred = Prediction(
                     student_id=student_id,
-                    risk_score=float(risk_value), # Ensure it's a float
-                    predicted_at=datetime.now(timezone.utc)
+                    risk_score=float(risk_value), # Store 0-1 range consistently
+                    predicted_at=datetime.datetime.now(datetime.timezone.utc)
                 )
                 session.add(new_pred)
 

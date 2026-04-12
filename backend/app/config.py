@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Load the secret from environment variables
-SECRET_KEY = os.getenv("STICK2IT_SECRET_KEY", "fallback-dev-key")
+SECRET_KEY = os.getenv("STICK2IT_SECRET_KEY", "fallback-dev-key-must-be-at-least-32-bytes")
 SECURITY_SALT = "buddy-verification-salt"
 
 # Initialize the serializer once for the app

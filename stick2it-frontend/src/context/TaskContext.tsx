@@ -18,6 +18,8 @@ interface TaskContextType {
   stressScore: number;
   globalTaskInput: string;
   isSaving: boolean;
+  displayedBadgeCount: number;
+  markNotificationsViewed: () => void;
   login: (token: string, student: any) => void;
   logout: () => void;
   refreshData: () => Promise<void>;
@@ -45,8 +47,22 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [notifications, setNotifications] = useState<any[]>([]);
   const [globalTaskInput, setGlobalTaskInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [lastSeenUnreadCount, setLastSeenUnreadCount] = useState(0);
 
-  
+  const unreadCount = notifications.filter(n => n.status === 'unread').length;
+
+  useEffect(() => {
+    if (unreadCount < lastSeenUnreadCount) {
+       setLastSeenUnreadCount(unreadCount);
+    }
+  }, [unreadCount, lastSeenUnreadCount]);
+
+  const displayedBadgeCount = Math.max(0, unreadCount - lastSeenUnreadCount);
+
+  const markNotificationsViewed = () => {
+     setLastSeenUnreadCount(unreadCount);
+  };
+
   // Load auth from sessionStorage on mount
   useEffect(() => {
     const savedToken = sessionStorage.getItem('token');
@@ -280,10 +296,12 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <TaskContext.Provider value={{ studentId, token, isAuthenticated: !!token, 
-      currentStudent,commitments, nudges, loading, login, logout, refreshData, supervisedTasks, streak, points, stressScore, notifications, handleVerify, handleRespond, startTask, toggleReminder, addReminder, 
+      currentStudent, commitments, nudges, loading, login, logout, refreshData, supervisedTasks, streak, points, stressScore, notifications, handleVerify, handleRespond, startTask, toggleReminder, addReminder, 
       globalTaskInput, 
       setGlobalTaskInput, 
-      isSaving }}>
+      isSaving,
+      displayedBadgeCount,
+      markNotificationsViewed }}>
       {children}
     </TaskContext.Provider>
   );

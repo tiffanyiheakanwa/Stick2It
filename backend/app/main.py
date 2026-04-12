@@ -16,6 +16,7 @@ from backend.src.predict import ProcrastinationPredictor
 from backend.src.recommender import AdaptiveRecommender
 from backend.src.progress import ProgressTracker
 from backend.src.scheduler import start_scheduler
+from backend.src.feedback_loop import MLFeedbackLoop
 
 from backend.app.database import get_db_session, SessionLocal
 from backend.app.models import Student, Commitment, Notification, Prediction
@@ -26,7 +27,7 @@ from .tasks import process_student_nudge_task
 # Auth & Security Helpers
 # =========================
 import jwt
-SECRET_KEY = "SUPER_SECRET_KEY_CHANGE_THIS"
+SECRET_KEY = "SUPER_SECRET_KEY_CHANGE_THIS_TO_BE_SECURE"
 security = HTTPBearer()
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)) -> int:
@@ -125,6 +126,11 @@ def automated_nudge_monitoring():
     
     logger.info(f" Dispatched {len(student_ids)} tasks to Celery queue.")
 
+@app.on_event("startup")
+@repeat_every(seconds=60 * 60 * 24 * 7) # Run once a week
+def weekly_evolution_trigger():
+    evolve_ai_model.delay()
+
 # =========================
 # AUTH ROUTES
 # =========================
@@ -168,6 +174,35 @@ async def login(data: dict = Body(...)):
 @app.get("/api/v1/me")
 async def me(current_user_id: int = Depends(get_current_user)):
     return {"student_id": current_user_id}
+
+@app.get("/api/v1/students/me/preferences")
+async def get_preferences(current_user_id: int = Depends(get_current_user)):
+    with get_db_session() as session:
+        student = session.get(Student, current_user_id)
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        return {
+            "success": True, 
+            "nudge_preference": getattr(student, 'nudge_preference', 'auto')
+        }
+
+@app.patch("/api/v1/students/me/preferences")
+async def update_preferences(data: dict = Body(...), current_user_id: int = Depends(get_current_user)):
+    with get_db_session() as session:
+        student = session.get(Student, current_user_id)
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        pref = data.get("nudge_preference")
+        if pref:
+            student.nudge_preference = pref
+            session.commit()
+            
+        return {
+            "success": True,
+            "message": "Preferences updated",
+            "nudge_preference": student.nudge_preference
+        }
 
 @app.get("/api/v1/health")
 async def health():
@@ -215,6 +250,8 @@ async def complete_content(data: dict = Body(...), current_user_id: int = Depend
         data.get("time_spent", 0)
     )
     result["new_recommendations"] = recommender.recommend(current_user_id)
+    with get_db_session() as session:
+        MLFeedbackLoop.log_actual_outcome(session, current_user_id, data.get("content_id"), stayed_on_track=True)
     return result
 
 @app.get("/api/v1/students/{student_id}/progress")
@@ -261,6 +298,12 @@ async def process_kept(token: str):
     with get_db_session() as session:
         commitment = session.query(Commitment).filter(Commitment.verification_token == token).first()
         if commitment:
+            MLFeedbackLoop.log_actual_outcome(
+                session, 
+                commitment.student_id, 
+                commitment.assignment_id, 
+                stayed_on_track=True
+            )
             new_notif = Notification(
                 recipient_id=commitment.student_id,
                 message=f"Your buddy verified you kept your task '{commitment.custom_title or 'Task'}'! +{commitment.stake_value} points.",
@@ -285,7 +328,8 @@ async def process_broken(token: str):
         if commitment:
             student_id = commitment.student_id 
             commitment_manager._process_failure(session, commitment)
-            
+            MLFeedbackLoop.log_actual_outcome(session, commitment.student_id, commitment.assignment_id, stayed_on_track=False)
+
             new_notif = Notification(
                 recipient_id=student_id,
                 message=f"Your buddy marked your task '{commitment.custom_title or 'Task'}' as failed. Penalty applied.",
@@ -315,10 +359,12 @@ async def fetch_verify_commitment(token: str, action: str):
             commitment.is_verified_by_buddy = True
             msg_status = "completed"
             points = commitment.stake_value
+            MLFeedbackLoop.log_actual_outcome(session, commitment.student_id, commitment.assignment_id, stayed_on_track=True)
         elif action == "broken":
             commitment_manager._process_failure(session, commitment)
             msg_status = "failed"
             points = 0
+            MLFeedbackLoop.log_actual_outcome(session, commitment.student_id, commitment.assignment_id, stayed_on_track=False)
         else:
             raise HTTPException(status_code=400, detail="Invalid action")
 
@@ -415,8 +461,15 @@ async def get_buddy_commitments(current_user_id: int = Depends(get_current_user)
         results = []
         for c in commitments:
             prediction = session.query(Prediction).filter_by(
-                assignment_id=c.content_id 
+                student_id=c.student_id,
+                assignment_id=c.assignment_id 
             ).order_by(Prediction.predicted_at.desc()).first()
+            
+            if not prediction and not c.assignment_id:
+                # Fallback to the latest prediction for the student if it's a custom task
+                prediction = session.query(Prediction).filter_by(
+                    student_id=c.student_id
+                ).order_by(Prediction.predicted_at.desc()).first()
             
             results.append({
                 "id": c.id,
@@ -577,6 +630,28 @@ async def get_notifications(current_user_id: int = Depends(get_current_user)):
             "notifications": notifications_list
         }
 
+@app.post("/api/v1/students/me/fcm-token")
+async def update_fcm_token(
+    data: dict = Body(...), 
+    current_user_id: int = Depends(get_current_user)):
+    """
+    Saves the Firebase token to the student's record.
+    """
+    token = data.get("fcm_token")
+    if not token:
+        raise HTTPException(status_code=400, detail="Token is required")
+
+    with get_db_session() as session:
+        student = session.query(Student).get(current_user_id)
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        student.fcm_token = token
+        session.commit()
+        
+        logger.info(f"FCM Token updated for student {current_user_id}")
+        return {"success": True, "message": "Token saved successfully"}
+
 nudge_system = SmartNudgeSystem()
 import traceback
 
@@ -598,6 +673,21 @@ async def test_nudge():
         return {"status": "error", "message": str(e)}
     finally:
         db.close()
+
+@app.get("/test-firebase-push")
+async def test_push(current_user_id: int = Depends(get_current_user)):
+    with get_db_session() as session:
+        student = session.query(Student).get(current_user_id)
+        if not student.fcm_token:
+            return {"error": "No FCM token found for this student. Log in again!"}
+
+        # Trigger the push via our nudge system logic
+        success = nudge_service._send_firebase_push(
+            student.fcm_token, 
+            "AI Coach: Stick2It!", 
+            "Testing the push notification system. Did you see this?"
+        )
+        return {"push_sent": success}
 
 @app.get("/")
 def home():

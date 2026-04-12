@@ -12,11 +12,8 @@ interface HeaderProps {
 }
 
 export function BuddyHeader({ onMenuClick, token }: HeaderProps) {
-  const { notifications, handleRespond } = useTasks();
+  const { notifications, handleRespond, displayedBadgeCount, markNotificationsViewed } = useTasks();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const unreadCount = notifications.filter((n: any) => n.status === 'unread').length;
-
-
 
   return (
     <header className="bg-white px-4 md:px-8 py-4">
@@ -61,11 +58,14 @@ export function BuddyHeader({ onMenuClick, token }: HeaderProps) {
            {/* Notifications Popover */}
            <Popover>
             <PopoverTrigger asChild>
-              <button className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors">
+              <button 
+               onClick={markNotificationsViewed}
+               className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors"
+               >
                 <Bell className="w-5 h-5 text-gray-600" />
-                {unreadCount > 0 && (
+                {displayedBadgeCount > 0 && (
                   <Badge className="absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center p-0 bg-red-500 text-white rounded-full text-xs">
-                    {unreadCount}
+                    {displayedBadgeCount}
                   </Badge>
                 )}
               </button>

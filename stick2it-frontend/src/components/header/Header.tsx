@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+
 import { Bell, Flame, Search, Mail, Menu, UserPlus, Check, X } from "lucide-react";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
@@ -11,10 +11,7 @@ interface HeaderProps {
 }
 
 export function Header({ onMenuClick, token }: HeaderProps) {
-  const { streak, notifications, handleRespond } = useTasks();
-  const unreadCount = notifications.filter(n => n.status === 'unread').length;
-
-
+  const { streak, notifications, handleRespond, displayedBadgeCount, markNotificationsViewed } = useTasks();
 
   return (
     <header className="bg-white px-4 md:px-8 py-4">
@@ -54,11 +51,14 @@ export function Header({ onMenuClick, token }: HeaderProps) {
           {/* Notifications Popover */}
           <Popover>
             <PopoverTrigger asChild>
-              <button className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors">
+              <button 
+               onClick={markNotificationsViewed}
+               className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
                 <Bell className="w-5 h-5 text-gray-600" />
-                {unreadCount > 0 && (
+                {displayedBadgeCount > 0 && (
                   <Badge className="absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center p-0 bg-red-500 text-white rounded-full text-xs">
-                    {unreadCount}
+                    {displayedBadgeCount}
                   </Badge>
                 )}
               </button>

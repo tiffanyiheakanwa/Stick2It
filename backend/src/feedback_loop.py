@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import and_
 from backend.src.logger import logger
 from backend.app.database import get_db_session
@@ -9,7 +9,8 @@ from backend.app.models import (
     Prediction, 
     Commitment, 
     StudentBehavior, 
-    Student
+    Student, 
+    StudentProgress
 )
 
 class MLFeedbackLoop:
@@ -94,6 +95,32 @@ class MLFeedbackLoop:
                 df = pd.DataFrame(data, columns=['type', 'status'])
                 stats = df.groupby('type')['status'].value_counts(normalize=True).unstack().fill_value(0)
                 logger.info(f"📊 Current Nudge Effectiveness Stats:\n{stats}")
+
+    @staticmethod
+    def log_actual_outcome(session, student_id, assignment_id, stayed_on_track: bool):
+        """
+        Finds the latest AI prediction for this task and records what actually happened.
+        stayed_on_track = True (Completed/Success), False (Procrastinated/Failure)
+        """
+        # Find the most recent prediction for this specific task/student
+        query = session.query(Prediction).filter(
+            Prediction.student_id == student_id,
+            Prediction.assignment_id == assignment_id
+        )
+    
+        # If no assignment_id was provided (custom task), find the latest for student
+        if not assignment_id:
+            query = session.query(Prediction).filter(Prediction.student_id == student_id)
+
+        prediction = query.order_by(Prediction.predicted_at.desc()).first()
+
+        if prediction:
+            prediction.actual_outcome = 1 if stayed_on_track else 0
+            prediction.feedback_received_at = datetime.now(timezone.utc)
+            session.commit()
+            print(f"✅ AI Feedback Loop: Updated outcome to {prediction.actual_outcome}")
+        else:
+            print(f"⚠️ AI Feedback Loop: No prediction found to update for student {student_id}")
 
 if __name__ == "__main__":
     # This allows the script to be run as a standalone cron job or task

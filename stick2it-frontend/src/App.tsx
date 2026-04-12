@@ -10,6 +10,7 @@ import { AISuggestionsView } from "./view/dashboard/AISuggestionsView";
 import { AuthLoginView } from "./view/auth/AuthLoginView";
 import { AuthSignupView } from "./view/auth/AuthSignupView";
 import { BuddyView } from "@/view/dashboard/BuddyView";
+import { SettingsView } from "./view/dashboard/SettingsView";
 import { useTasks } from './context/TaskContext.tsx';
 import { Toaster } from "react-hot-toast";
 
@@ -84,6 +85,8 @@ export default function App() {
       //   return <TodayView />;
       case "ai":
         return <AISuggestionsView />;
+      case "settings":
+        return <SettingsView />;
       default:
         return <DashboardView />;
     }

@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Sparkles } from "lucide-react";
+import { requestAndSaveToken } from "../../service/pushNotifications"; 
 
 interface AuthLoginViewProps {
   onLoginSuccess: (payload: {
@@ -44,10 +45,21 @@ export function AuthLoginView({
         return;
       }
 
+      try {
+        // We pass the new token to the notification service
+        // This fires off the "Can we send you notifications?" prompt
+        await requestAndSaveToken(data.token);
+      } catch (fcmError) {
+        // We log it but don't stop the login process if notifications fail
+        console.error("Failed to sync push token:", fcmError);
+      }
+
       onLoginSuccess({
         token: data.token,
         student: data.student,
       });
+    } catch (err) {
+      setError("A connection error occurred.");
     } finally {
       setLoading(false);
     }
