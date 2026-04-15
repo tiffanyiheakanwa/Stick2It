@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+backend/app/credentials.json
+backend/firebase-adminsdk.json
