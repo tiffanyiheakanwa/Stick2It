@@ -1,0 +1,31 @@
+[33mtag v1.0-manual[m
+Tagger: tiffanyiheakanwa <tiffanyiheakanwa@gmail.com>
+Date:   Wed Apr 15 14:47:15 2026 +0100
+
+Stable version with manual entry
+
+[33mcommit 0d2ac448fd04cbc51e8cb5b775bb56d0ca0f7bbd[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeat/school-integration[m[33m, [m[1;33mtag: [m[1;33mv1.0-manual[m[33m, [m[1;32mmain[m[33m)[m
+Author: tiffanyiheakanwa <tiffanyiheakanwa@gmail.com>
+Date:   Sun Apr 12 22:48:25 2026 +0100
+
+    feat: add Firebase Admin SDK service account credentials
+
+[1mdiff --git a/backend/firebase-adminsdk.json b/backend/firebase-adminsdk.json[m
+[1mnew file mode 100644[m
+[1mindex 0000000..0bc4981[m
+[1m--- /dev/null[m
+[1m+++ b/backend/firebase-adminsdk.json[m
+[36m@@ -0,0 +1,13 @@[m
+[32m+[m[32m{[m
+[32m+[m[32m  "type": "service_account",[m
+[32m+[m[32m  "project_id": "remindai-5c4ec",[m
+[32m+[m[32m  "private_key_id": "8d0bdc9f9d4b10b6d676d3712be2affedbd3af9c",[m
+[32m+[m[32m  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC8SfuNOScktGri\nUcVR6UmT14j3UolvzqGy8G2O7tHp3Yt4bmN/0fCxl7skQL5WDTE+veaz/yH5uvL2\nqp+n0gA/biomLxu5BuZnsoKyC5mj9uvcMEr/dvZX4U2r4omiDfSEg797xYC771ON\ngryyAl9IOwm+4tYsJRfTW4vfNuVFAxwrG57tgU5yFTCkSNBg7CmwEgwbqLVm4ciq\nzTBHyji/MiNY0mAJhpbUElmby1apy0zsKnfUhzjwcxTw11vf3PWfIEVT9aC9i8Rt\nsy5uxvLnFq4bQX9CROoZyhPoaNvQdSu9gMFXKFZb3B1uD3dLui3Q72dSQlqi1IQr\n+7oiBIMjAgMBAAECggEAG7buEnLzqojt5KMxnqVugZbrn6/j7/OjxHF0RuIrPrev\n9EmXVrShr5pMXwEyovrtITWVlC/9IcOdSKaDupGEHNIL3TP46iq0VlYlu6xOcJ6D\nSBVJrMGnb/cHVkIRjSttruWvlTnUgZUwILe6K5+Cw+CAxjqgWL4a/C7Q70mmxJn4\nHToMQK9D32brX8OMhToz8rI7Ujq4KToilcLDPtqCUrAVXvwSxool06QjbvAuxnPH\nYwno2INiXqeeln1jiXkgdxM8DmhOZYPxQdNN3XjnOqxEyIwCPCh1peu+vyneuybP\n/3CLQ2pX09HVyv8hHEPTIzCCbB+T/P7kaN/si5ES3QKBgQDzW27amkqiPGi36VUk\nxfPgxYSnZKrT5DtvTWm+kqUH8iCv1ylhA6zSjJaSvsO6n13BQ9wfQ+DKoIuTL1DI\n8dePmm/r0um3wx+PhU3bPlladGW6ZJu7G+BjcP9/JYocOXah6gysXDQpEgDtaP2y\nlLLt8DsAUE/3vsaU71eC4rFYhQKBgQDGEiluJkwdLZJj/GI1FCnd3TZO3/32otiQ\nbyWBB8BvGBSlwS48uJLcQxQ/5tiDEJVUmH6l/ffClTjhK77BIuTZ5ERqZE8z4wU0\neeBMLP9gmLUG2jNrUowFFxLGC4B5ebwfbY8oogIrWM5d3m6VKVRpZXHJ6WLCToPp\niZEOsoYRhwKBgQDjk2K0TUt0MjffnPXBoNizHyMxgyN5adrm+CbmT67DInvM1NJe\nZhhtAYoiCwFw+W2suXAVUN3bv40nBD1w3TCvm0YE68Ui0vcluQyY9dKLk4Q6bbFw\npd4OQHK+DXX9dQNq4Twex08EBVEWs3NkWEiH2HrkjTZrQV3lk3lr7eDZHQKBgFsk\njlX2X33ps3w47cP49E74dP4UiluMkdTcoEhglcdJMG8ZlrowQLwETfQduLGO1vhn\nd5fQZsruOY87vvpGoUI2jNjcManxpDqCfpju99CuVFbD33daM74/4M6rCkJbpxpb\nIs4SxqbFpaiCKyaOLx6UpKjBsUUyNfcn60z1D0ZPAoGAejNsg/SUb1FAGNlkNCjb\nBI4CS3J+1DN7J9YT3mQT15MXVthKWcllfo3NFNBcOyv4NbjUvm4XuImEwRRgHGcw\n43+KX0NOHzaN0G+ZeoHHJswFzfXjiKxFxkbFnAscMyysCvV+Fa14ztVv2Ecvuimn\nHcrg/+O5fD8RKgA2esI+6+w=\n-----END PRIVATE KEY-----\n",[m
+[32m+[m[32m  "client_email": "firebase-adminsdk-fbsvc@remindai-5c4ec.iam.gserviceaccount.com",[m
+[32m+[m[32m  "client_id": "101897971231747693845",[m
+[32m+[m[32m  "auth_uri": "https://accounts.google.com/o/oauth2/auth",[m
+[32m+[m[32m  "token_uri": "https://oauth2.googleapis.com/token",[m
+[32m+[m[32m  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",[m
+[32m+[m[32m  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40remindai-5c4ec.iam.gserviceaccount.com",[m
+[32m+[m[32m  "universe_domain": "googleapis.com"[m
+[32m+[m[32m}[m
