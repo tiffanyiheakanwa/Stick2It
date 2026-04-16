@@ -163,9 +163,9 @@ class SmartNudgeSystem:
                 logger.info(f"Missing data for student {student_id}")
                 return []
             
-            # 2. Get all pending commitments
+            # 2. Get all pending AND requires_stake commitments
             active_commitments = session.query(Commitment).filter(
-                and_(Commitment.student_id == student_id, Commitment.status == 'pending')
+                and_(Commitment.student_id == student_id, Commitment.status.in_(['pending', 'requires_stake']))
             ).all()
         
             if not active_commitments:
@@ -175,6 +175,18 @@ class SmartNudgeSystem:
             now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
             for commit in active_commitments:
+                # [NEW CTA NUDGE INTERRUPT]
+                if commit.status == 'requires_stake':
+                    cta_message = f"New Assignment Detected: '{commit.assignment.title if commit.assignment else 'Task'}'. Set your stake now to stay on track!"
+                    nudges_to_send.append({
+                        'type': 'AI_CALL_TO_ACTION',
+                        'p_fail': 1.0,  # Max priority to surface immediately
+                        'message': cta_message,
+                        'assignment_id': commit.assignment_id,
+                        'timing': 'immediate'
+                    })
+                    continue # Skip normal risk calculation for unstaked items
+                    
                 # 3. Calculate time-based variables FIRST
                 target_date = commit.assignment.due_date if commit.assignment else commit.committed_datetime
                 hours_left = int((target_date - now).total_seconds() / 3600)

@@ -87,12 +87,32 @@ def protect_streaks():
     except Exception as e:
         logger.error(f" Error in protect_streaks: {e}")
 
+def check_school_assignments():
+    """Trigger background syncs for all externally connected students"""
+    try:
+        from backend.app.database import get_db_session
+        from backend.app.models import Student
+        from backend.app.tasks import sync_school_data_task
+        from backend.src.logger import sync_logger
+        
+        with get_db_session() as session:
+            sync_logger.info("Running scheduled job: check_school_assignments")
+            students = session.query(Student).filter(Student.auth_provider.isnot(None)).all()
+            for s in students:
+                # Dispatch execution to parallel Celery worker queue
+                sync_school_data_task.delay(s.id)
+                
+    except Exception as e:
+        from backend.src.logger import sync_logger
+        sync_logger.error(f"Error in check_school_assignments: {e}")
+
 # =========================
 # SCHEDULE JOBS
 # =========================
 
 scheduler.add_job(check_commitments, "interval", minutes=30, id="check_commitments")
 scheduler.add_job(send_nudges, "interval", minutes=60, id="send_nudges")
+scheduler.add_job(check_school_assignments, "interval", hours=2, id="sync_assignments")
 scheduler.add_job(protect_streaks, "cron", hour="18-23", id="streak_protection")
 scheduler.add_job(update_streaks, "cron", hour=0, id="update_streaks")  # runs at midnight
 

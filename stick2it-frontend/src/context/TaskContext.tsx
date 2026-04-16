@@ -78,9 +78,35 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(false);
   }, []);
   
+  const [hasSyncedThisSession, setHasSyncedThisSession] = useState(false);
+
   useEffect(() => {
     if (token && studentId) {
-      refreshData();
+      if (!hasSyncedThisSession) {
+        setHasSyncedThisSession(true);
+        // Trigger background sync on first load of the session
+        fetch(`http://localhost:8000/api/v1/students/me/sync-assignments`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        .then(res => res.json().then(data => ({status: res.status, data})))
+        .then(resObj => {
+          if (resObj.status === 401 && resObj.data?.detail?.includes("expired")) {
+            toast.error("Your external account token expired. Please completely sign out and logically click 'Continue with Google' to restore syncing.", { duration: 8000 });
+            refreshData(); 
+          } else if (resObj.status === 200 && resObj.data?.synced_count > 0) {
+            toast.success(`Synced ${resObj.data.synced_count} tasks from your platforms!`, { duration: 4000 });
+            refreshData(); 
+          } else {
+            refreshData();
+          }
+        }).catch(err => {
+           console.error("Auto-sync error:", err);
+           refreshData();
+        });
+      } else {
+        refreshData();
+      }
     }
   }, [token, studentId]);
 

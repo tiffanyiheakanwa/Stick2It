@@ -31,3 +31,16 @@ console_handler.setFormatter(formatter)
 # Add handlers
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
+
+# --------------------------
+# SYNCHRONIZATION LOGGER
+# --------------------------
+sync_logger = logging.getLogger("Stick2It.Sync")
+sync_logger.setLevel(logging.INFO)
+
+sync_handler = logging.FileHandler("logs/sync_errors.log")
+sync_handler.setLevel(logging.INFO)
+sync_handler.setFormatter(formatter)
+
+sync_logger.addHandler(sync_handler)
+sync_logger.addHandler(console_handler)

@@ -9,6 +9,7 @@ import { RemindersView } from "./view/dashboard/RemindersView";
 import { AISuggestionsView } from "./view/dashboard/AISuggestionsView";
 import { AuthLoginView } from "./view/auth/AuthLoginView";
 import { AuthSignupView } from "./view/auth/AuthSignupView";
+import { OAuthCallbackView } from "./view/auth/OAuthCallbackView";
 import { BuddyView } from "@/view/dashboard/BuddyView";
 import { SettingsView } from "./view/dashboard/SettingsView";
 import { useTasks } from './context/TaskContext.tsx';
@@ -41,6 +42,8 @@ export default function App() {
     loading
   } = useTasks();
 
+  const [isOAuthCallback] = useState(() => window.location.search.includes('token='));
+
   const [activeSection, setActiveSection] = useState(() => {
     return sessionStorage.getItem('lastSection') || "dashboard";
   });
@@ -50,6 +53,10 @@ export default function App() {
   useEffect(() => {
     sessionStorage.setItem('lastSection', activeSection);
   }, [activeSection]);
+
+  if (isOAuthCallback) {
+    return <OAuthCallbackView />;
+  }
 
   if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-indigo-600 text-white">Loading...</div>;
 
