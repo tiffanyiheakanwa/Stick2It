@@ -23,5 +23,5 @@ dist-ssr
 *.sln
 *.sw?
 
-backend/app/credentials.json
+backend/app/client_secret.json
 backend/firebase-adminsdk.json

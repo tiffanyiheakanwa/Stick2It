@@ -18,10 +18,12 @@ interface CommitmentModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   initialTitle: string;
+  initialDate?: string;
+  activationCommitmentId?: number | null;
   token: string;
 }
 
-export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, token }: CommitmentModalProps) {
+export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, initialDate, activationCommitmentId, token }: CommitmentModalProps) {
   const [loading, setLoading] = useState(false);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [formData, setFormData] = useState({
@@ -45,10 +47,22 @@ export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, toke
     };
 
     if (isOpen) {
-      setFormData(prev => ({ ...prev, title: initialTitle }));
+      let formattedDate = "";
+      if (initialDate) {
+        const d = new Date(initialDate);
+        if (!isNaN(d.getTime())) {
+          // Adjust for local timezone offset for datetime-local
+          formattedDate = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        }
+      }
+      setFormData(prev => ({ 
+        ...prev, 
+        title: initialTitle,
+        date: formattedDate
+      }));
       fetchPartners();
     }
-  }, [isOpen, initialTitle, token]);
+  }, [isOpen, initialTitle, initialDate, token]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -61,20 +75,32 @@ export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, toke
     setLoading(true);
     
     try {
-      const response = await fetch("http://localhost:8000/api/v1/commitments", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({
+      const isActivation = !!activationCommitmentId;
+      const url = isActivation 
+        ? `http://localhost:8000/api/v1/commitments/${activationCommitmentId}/activate`
+        : "http://localhost:8000/api/v1/commitments";
+      const method = isActivation ? "PATCH" : "POST";
+
+      const payload = isActivation ? {
+          buddy_name: selectedPartner.name,
+          buddy_email: selectedPartner.email,
+          stake_value: parseInt(formData.stakeValue)
+      } : {
           title: formData.title,
           committed_datetime: new Date(formData.date).toISOString(),
           buddy_name: selectedPartner.name,
           buddy_email: selectedPartner.email,
           stake_value: parseInt(formData.stakeValue),
           content_id: null 
-        }),
+      };
+
+      const response = await fetch(url, {
+        method: method,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
@@ -106,6 +132,8 @@ export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, toke
               value={formData.title} 
               onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))} 
               required 
+              disabled={!!activationCommitmentId}
+              className={!!activationCommitmentId ? "bg-gray-100 text-gray-500 border-transparent shadow-none" : ""}
             />
           </div>
 
@@ -114,7 +142,15 @@ export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, toke
             <Label htmlFor="date" className="text-gray-600">Completion Deadline</Label>
             <div className="relative">
               <Calendar className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-              <Input id="date" type="datetime-local" value={formData.date} onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))} className="pl-10 rounded-lg" required />
+              <Input 
+                id="date" 
+                type="datetime-local" 
+                value={formData.date} 
+                onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))} 
+                className={`pl-10 rounded-lg ${!!activationCommitmentId ? "bg-gray-100 text-gray-500 border-transparent shadow-none" : ""}`}
+                required 
+                disabled={!!activationCommitmentId}
+              />
             </div>
           </div>
 

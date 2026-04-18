@@ -11,3 +11,6 @@ SECURITY_SALT = "buddy-verification-salt"
 
 # Initialize the serializer once for the app
 serializer = URLSafeTimedSerializer(SECRET_KEY)
+
+# Gemini API configuration
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")

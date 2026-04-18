@@ -148,5 +148,15 @@ class AssignmentIngestor:
                     stake_type="Points"
                 )
                 self.session.add(pre_commit)
+                
+                from backend.app.models import Notification
+                new_notif = Notification(
+                    recipient_id=student_id,
+                    sender_id=None,
+                    message=f"New sync! '{title}' requires your activation.",
+                    type="sync_alert_requires_stake",
+                    status="unread"
+                )
+                self.session.add(new_notif)
             except Exception as e:
                 logger.error(f"Failed to auto-predict new assignment {title}: {e}")

@@ -557,13 +557,13 @@ class SmartNudgeSystem:
                         self._send_personalized_alert(session, points.student_id, "STREAK_PROTECTION", message)
                         logger.info(f" Streak protection nudge sent to student {points.student_id}")
 
-    def _send_sendgrid_email(self, user_email, message):
+    def _send_sendgrid_email(self, user_email, message, user_name="Student"):
         """
         Core delivery logic for SendGrid.
         """
         # 1. Prepare the Mail object
         sg_mail = Mail(
-            from_email=os.environ.get('SENDER_EMAIL'),
+            from_email=os.environ.get('SENDER_EMAIL', 'test@example.com'),
             to_emails=user_email,
             subject=f"Action Required: Personalized Insight for {user_name}",
             plain_text_content=message
@@ -572,6 +572,10 @@ class SmartNudgeSystem:
         try:
             # 2. Initialize the client with your API Key
             api_key = os.environ.get('SENDGRID_API_KEY')
+            if not api_key:
+                logger.warning(f"Simulating email to {user_email}: {message}")
+                return True
+                
             sg = SendGridAPIClient(api_key)
             response = sg.send(sg_mail)
             
@@ -593,49 +597,42 @@ class SmartNudgeSystem:
         response = messaging.send(message)
         print(f"Successfully sent Firebase message: {response}")
 
-    def _send_personalized_alert(self, session, student_id, user_email, nudge_type, message, user_name= "Student", assignment_id=None, commitment_id=None):
+    def _send_personalized_alert(self, session, student_id, nudge_type, message, assignment_id=None, commitment_id=None):
         """
         Logs the nudge in the database for AI training and triggers delivery.
         """
         student = session.query(Student).filter(Student.id == student_id).first()
-
-        self._log_nudge_to_db(session, student_id, nudge_type, message)
-
-        success = False
-
-        # 2. Routing Logic
-        if "URGENT" in nudge_type.upper() or "DEADLINE" in nudge_type.upper():
-            # Use Firebase for immediate attention
-            if student.fcm_token:
-                success = self._send_firebase_push(student.fcm_token, "Stick2It Alert", message)
-            
-        if not success:
-            success = self._send_sendgrid_email(user_email, message)
-            
-        return success
+        if not student:
+            return False
 
         try:
             # Create a record in the Nudges table
             new_nudge = Nudge(
                 student_id=student_id,
                 assignment_id=assignment_id,
-                commitment_id= commitment_id,
+                commitment_id=commitment_id,
                 message=message,
                 nudge_type=nudge_type,
                 sent_at=datetime.datetime.now(datetime.timezone.utc)
             )
             session.add(new_nudge)
             session.commit()
-            return True
         except Exception as e:
             session.rollback()
-            print(f"!!! SENDGRID ERROR: {e}")
             logger.error(f" Failed to log nudge: {e}")
-            print(f"Failed to send nudge to {user_email}: {str(e)}")
-            return False
+
+        success = False
+
+        # 2. Routing Logic
+        if "URGENT" in nudge_type.upper() or "DEADLINE" in nudge_type.upper():
+            # Use Firebase for immediate attention
+            if getattr(student, "fcm_token", None):
+                success = self._send_firebase_push(student.fcm_token, "Stick2It Alert", message)
             
-        # Always send an email backup or use it for non-urgent nudges
-        return self._send_sendgrid_email(user_email, message)
+        if not success:
+            success = self._send_sendgrid_email(student.email, message, user_name=student.name)
+            
+        return success
         
 
     def _log_prediction(self, session, student_id, assignment_id, p_fail):

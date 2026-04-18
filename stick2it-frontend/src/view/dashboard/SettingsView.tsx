@@ -4,9 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Settings, Save, AlertCircle } from "lucide-react";
 import toast from "react-hot-toast";
+import { SettingsSkeleton } from "../../components/dashboard/SettingsSkeleton";
 
 export function SettingsView() {
-  const { token } = useTasks();
+  const { token, currentStudent } = useTasks();
   const [preference, setPreference] = useState("auto");
   const [draftPreference, setDraftPreference] = useState("auto");
   const [showConfirm, setShowConfirm] = useState(false);
@@ -71,7 +72,7 @@ export function SettingsView() {
   ];
 
   if (loading) {
-    return <div className="p-8 text-center text-gray-500">Loading Settings...</div>;
+    return <SettingsSkeleton />;
   }
 
   const getLabelForValue = (val: string) => {
@@ -122,6 +123,58 @@ export function SettingsView() {
                 ))}
               </div>
             </div>
+
+            <div className="pt-6 border-t border-gray-100">
+              <h3 className="text-md font-semibold text-gray-600 mb-4">Connected Platforms</h3>
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl border border-gray-200 bg-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center flex-shrink-0">
+                      <span className="text-blue-600 font-bold text-xl">G</span>
+                    </div>
+                    <div>
+                      <span className="font-semibold text-sm text-gray-900">Google Classroom</span>
+                      <p className="mt-1 text-xs text-gray-500">Automatically sync your assignments and due dates.</p>
+                    </div>
+                  </div>
+                  {currentStudent?.is_google_connected ? (
+                    <Button 
+                      variant="outline" 
+                      className="flex-shrink-0 border-green-200 text-green-700 bg-green-50"
+                      disabled
+                    >
+                      Connected
+                    </Button>
+                  ) : (
+                    <Button 
+                      variant="outline" 
+                      className="flex-shrink-0 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                      onClick={() => {
+                          window.location.href = "http://localhost:8000/api/v1/auth/google";
+                      }}
+                    >
+                      Sync Account
+                    </Button>
+                  )}
+                </div>
+                
+                <div className="p-4 rounded-2xl border border-gray-200 bg-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center flex-shrink-0">
+                      <span className="text-orange-600 font-bold text-xl">M</span>
+                    </div>
+                    <div>
+                      <span className="font-semibold text-sm text-gray-900">Moodle</span>
+                      <p className="mt-1 text-xs text-gray-500">Coming soon! Bring your university tasks into Stick2It.</p>
+                    </div>
+                  </div>
+                  <Button variant="outline" disabled className="flex-shrink-0">
+                    Coming Soon
+                  </Button>
+                </div>
+              </div>
+            </div>
+
           </div>
         </CardContent>
         <CardFooter className="flex justify-end gap-3 border-t bg-gray-50/50 p-6 rounded-b-xl">

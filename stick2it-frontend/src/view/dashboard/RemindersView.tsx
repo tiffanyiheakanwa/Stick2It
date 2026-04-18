@@ -1,8 +1,11 @@
 import { Card, CardContent } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
-import { Clock } from "lucide-react";
+import { Clock, BookOpen, GraduationCap, AlertCircle } from "lucide-react";
 import { useState } from "react";
 import { useTasks } from "../../context/TaskContext"; 
+import { CreateCommitmentModal } from "../../components/modal/CreateCommitmentModal";
+import { Button } from "../../components/ui/button";
+import { RemindersSkeleton } from "../../components/dashboard/RemindersSkeleton";
 
 // const priorityColors = {
 //   High: "bg-red-100 text-red-700 border-red-200",
@@ -12,16 +15,27 @@ import { useTasks } from "../../context/TaskContext";
 
 
 export function RemindersView(){
-  const { commitments, loading } = useTasks();
+  const { commitments, loading, token, refreshData } = useTasks();
   const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [activeCommitId, setActiveCommitId] = useState<number | null>(null);
+  const [activeTitle, setActiveTitle] = useState("");
+  const [activeDate, setActiveDate] = useState("");
+
+  const handleActivate = (id: number, title: string, datestr: string) => {
+    setActiveCommitId(id);
+    setActiveTitle(title);
+    setActiveDate(datestr);
+    setModalOpen(true);
+  };
 
   const filteredReminders = commitments.filter((c) => {
-    if (filter === "active") return c.status === "pending";
+    if (filter === "active") return c.status === "pending" || c.status === "requires_stake";
     if (filter === "completed") return c.status === "kept" || c.status === "completed";
     return true;
   });
 
-  if (loading) return <div className="p-8 text-center text-indigo-600 animate-pulse">Loading your commitments...</div>;
+  if (loading) return <RemindersSkeleton />;
 
   return (
     <div className="space-y-6">
@@ -63,37 +77,77 @@ export function RemindersView(){
 
       <div className="grid grid-cols-1 gap-4">
         {filteredReminders.map((commitment) => (
-          <Card key={commitment.id}>
+          <Card key={commitment.id} className={commitment.status === 'requires_stake' ? 'border-orange-300 bg-orange-50' : ''}>
             <CardContent className="p-4">
-              <div className="flex items-start gap-3">
+              <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <div className={`flex items-center gap-2 mb-2 ${commitment.status === 'kept' ? "line-through text-gray-400" : ""}`}>
-                    {/* Backend commitments use penalty_message or title if you updated the model */}
-                    <span className="text-gray-900 font-medium">
-                        {commitment.penalty_message?.split(" if ")[1]?.split(" is ")[0] || "Active Commitment"}
+                    {commitment.source_platform === 'google' && <span title="Google Classroom"><BookOpen className="w-5 h-5 text-indigo-600" /></span>}
+                    {commitment.source_platform === 'moodle' && <span title="Moodle"><GraduationCap className="w-5 h-5 text-orange-600" /></span>}
+                    <span className={`font-medium ${commitment.status === 'requires_stake' ? 'text-orange-900' : 'text-gray-900'}`}>
+                        {commitment.title || "Active Commitment"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-gray-500 mb-3 text-sm">
                     <Clock className="w-3.5 h-3.5" />
                     <span>Deadline: {new Date(commitment.committed_datetime).toLocaleString()}</span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className="bg-indigo-100 text-indigo-700">
-                      Stake: {commitment.stake_value} {commitment.stake_type}
-                    </Badge>
-                    <Badge variant="outline">
-                      Buddy: {commitment.buddy_name}
-                    </Badge>
-                  </div>
+                  
+                  {commitment.status !== 'requires_stake' ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className="bg-indigo-100 text-indigo-700">
+                        Stake: {commitment.stake_value} {commitment.stake_type}
+                      </Badge>
+                      <Badge variant="outline">
+                        Buddy: {commitment.buddy_name}
+                      </Badge>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-orange-600 text-sm font-semibold">
+                      <AlertCircle className="w-4 h-4" />
+                      Requires valid stake and buddy to activate!
+                    </div>
+                  )}
                 </div>
-                <Badge className={commitment.status === 'kept' ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}>
-                  {commitment.status.toUpperCase()}
-                </Badge>
+                
+                <div className="flex flex-col items-end gap-2 shrink-0">
+                  <Badge className={
+                    commitment.status === 'kept' ? "bg-green-100 text-green-700" : 
+                    commitment.status === 'requires_stake' ? "bg-orange-100 text-orange-700 border-orange-200" : 
+                    "bg-blue-100 text-blue-700"
+                  }>
+                    {commitment.status === 'requires_stake' ? 'NEEDS ACTIVATION' : commitment.status.toUpperCase()}
+                  </Badge>
+                  {commitment.status === 'requires_stake' && (
+                    <Button 
+                      size="sm" 
+                      className="bg-orange-500 hover:bg-orange-600 text-white shadow-sm mt-2 font-bold"
+                      onClick={() => handleActivate(commitment.id, commitment.title, commitment.committed_datetime)}
+                    >
+                      Activate (Set Stake)
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
+
+      <CreateCommitmentModal 
+        isOpen={modalOpen} 
+        onOpenChange={(open) => {
+          setModalOpen(open);
+          if (!open) {
+            setActiveCommitId(null);
+            refreshData(); 
+          }
+        }} 
+        initialTitle={activeTitle} 
+        initialDate={activeDate}
+        activationCommitmentId={activeCommitId}
+        token={token || ""}
+      />
     </div>
   );
 }

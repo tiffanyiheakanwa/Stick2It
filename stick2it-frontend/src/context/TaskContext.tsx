@@ -26,7 +26,7 @@ interface TaskContextType {
   handleVerify: (vToken: string, action: 'kept' | 'broken') => Promise<void>;
   startTask: (assignmentId:number)=> void;
   setGlobalTaskInput: (value: string) => void;
-  addReminder: (title: string, time: string, priority?:string)=> Promise<void>;
+  addReminder: (title: string, time: string, priority?:string, isSubtask?: boolean)=> Promise<void>;
   toggleReminder: (id:number) => void;
   handleRespond: (id: number, action: 'accept' | 'refuse') => Promise<void>;
 }
@@ -249,7 +249,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  const addReminder = async (title: string, time: string, priority: string = "Medium") => {
+  const addReminder = async (title: string, time: string, priority: string = "Medium", isSubtask: boolean = false) => {
     if (!title.trim()) return;
     
     setIsSaving(true);
@@ -263,7 +263,8 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({
           title,
           committed_datetime: new Date().toISOString(),
-          stake_value: 10
+          stake_value: 10,
+          stake_type: isSubtask ? "AI_Subtask" : "Points"
         }),
       });
 
@@ -279,7 +280,8 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
             status: "pending",
             completed: false,
             date: new Date().toISOString().split('T')[0],
-            aiSuggested: false,
+            aiSuggested: isSubtask,
+            stake_type: isSubtask ? "AI_Subtask" : "Points",
             priority: priority ,
             category: "General"
           },

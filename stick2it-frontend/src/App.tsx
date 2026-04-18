@@ -38,8 +38,7 @@ export default function App() {
     isAuthenticated, 
     currentStudent, 
     login, 
-    logout,
-    loading
+    logout
   } = useTasks();
 
   const [isOAuthCallback] = useState(() => window.location.search.includes('token='));
@@ -57,8 +56,6 @@ export default function App() {
   if (isOAuthCallback) {
     return <OAuthCallbackView />;
   }
-
-  if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-indigo-600 text-white">Loading...</div>;
 
   const renderContent = () => {
     if (!isAuthenticated) {
@@ -127,11 +124,11 @@ export default function App() {
         <div className="w-full lg:pl-64">
           <div className="min-h-screen bg-white lg:rounded-tl-3xl">
             {activeSection === "dashboard" ? (
-              <DashboardHeader onMenuClick={() => setSidebarOpen(true)} token={token || ""} />
+              <DashboardHeader onMenuClick={() => setSidebarOpen(true)} token={token || ""} onNavigate={(sec) => setActiveSection(sec)} />
             ) : activeSection === "buddy" ? (
-              <BuddyHeader onMenuClick={() => setSidebarOpen(true)} token={token || ""}/>
+              <BuddyHeader onMenuClick={() => setSidebarOpen(true)} token={token || ""} onNavigate={(sec) => setActiveSection(sec)} />
             ) : (
-              <Header onMenuClick={() => setSidebarOpen(true)} token={token || ""}/>
+              <Header onMenuClick={() => setSidebarOpen(true)} token={token || ""} onNavigate={(sec) => setActiveSection(sec)} />
             )}
 
             <main className="px-4 md:px-6 lg:px-8 ">{renderContent()}</main>

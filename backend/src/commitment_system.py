@@ -156,7 +156,9 @@ class CommitmentSystem:
                         "stake_type": c.stake_type,
                         "buddy_name": c.buddy_name,
                         "penalty_message": c.penalty_message,
-                        "committed_datetime": c.committed_datetime.isoformat()
+                        "committed_datetime": c.committed_datetime.isoformat(),
+                        "title": c.assignment.title if c.assignment else (c.custom_title or "Task"),
+                        "source_platform": c.assignment.source_platform if c.assignment else "local"
                     } for c in commitments
                 ]
             }
