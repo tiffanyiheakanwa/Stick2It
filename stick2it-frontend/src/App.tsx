@@ -9,6 +9,7 @@ import { RemindersView } from "./view/dashboard/RemindersView";
 import { AISuggestionsView } from "./view/dashboard/AISuggestionsView";
 import { AuthLoginView } from "./view/auth/AuthLoginView";
 import { AuthSignupView } from "./view/auth/AuthSignupView";
+import { OAuthCallbackView } from "./view/auth/OAuthCallbackView";
 import { BuddyView } from "@/view/dashboard/BuddyView";
 import { SettingsView } from "./view/dashboard/SettingsView";
 import { useTasks } from './context/TaskContext.tsx';
@@ -37,9 +38,10 @@ export default function App() {
     isAuthenticated, 
     currentStudent, 
     login, 
-    logout,
-    loading
+    logout
   } = useTasks();
+
+  const [isOAuthCallback] = useState(() => window.location.search.includes('token='));
 
   const [activeSection, setActiveSection] = useState(() => {
     return sessionStorage.getItem('lastSection') || "dashboard";
@@ -51,7 +53,9 @@ export default function App() {
     sessionStorage.setItem('lastSection', activeSection);
   }, [activeSection]);
 
-  if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-indigo-600 text-white">Loading...</div>;
+  if (isOAuthCallback) {
+    return <OAuthCallbackView />;
+  }
 
   const renderContent = () => {
     if (!isAuthenticated) {
@@ -120,11 +124,11 @@ export default function App() {
         <div className="w-full lg:pl-64">
           <div className="min-h-screen bg-white lg:rounded-tl-3xl">
             {activeSection === "dashboard" ? (
-              <DashboardHeader onMenuClick={() => setSidebarOpen(true)} token={token || ""} />
+              <DashboardHeader onMenuClick={() => setSidebarOpen(true)} token={token || ""} onNavigate={(sec) => setActiveSection(sec)} />
             ) : activeSection === "buddy" ? (
-              <BuddyHeader onMenuClick={() => setSidebarOpen(true)} token={token || ""}/>
+              <BuddyHeader onMenuClick={() => setSidebarOpen(true)} token={token || ""} onNavigate={(sec) => setActiveSection(sec)} />
             ) : (
-              <Header onMenuClick={() => setSidebarOpen(true)} token={token || ""}/>
+              <Header onMenuClick={() => setSidebarOpen(true)} token={token || ""} onNavigate={(sec) => setActiveSection(sec)} />
             )}
 
             <main className="px-4 md:px-6 lg:px-8 ">{renderContent()}</main>

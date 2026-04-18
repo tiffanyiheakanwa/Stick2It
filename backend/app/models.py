@@ -18,12 +18,18 @@ class Student(Base):
     name = Column(String(100))
     email = Column(String(120), unique=True, index=True, nullable=False)
     avg_success_rate = Column(Float, default=0.5) 
-    password_hash = Column(String(255), nullable=False)
+    password_hash = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     no_nudges = Column(Boolean, default=False)      # Opt-out for nudges
     nudge_preference = Column(String(50), default="auto") # e.g. "auto", "loss_aversion", "social_accountability"
     model_opt_out = Column(Boolean, default=False)  # Opt-out for ML modeling
     fcm_token = Column(String, nullable=True)
+    
+    # OAuth Fields
+    auth_provider = Column(String(50), default="local") # "local", "google", "moodle"
+    ext_access_token = Column(String, nullable=True)
+    ext_refresh_token = Column(String, nullable=True)
+    ext_token_expires_at = Column(DateTime, nullable=True)
     
     partners = relationship(
         "Student",
@@ -73,6 +79,10 @@ class Assignment(Base):
     due_date = Column(DateTime)
     status = Column(String(20), default="Pending") 
     student_id = Column(Integer, ForeignKey("students.id"))
+    
+    source_platform = Column(String(50), default="local") # 'local', 'google', 'moodle'
+    external_id = Column(String(255), nullable=True, index=True) 
+    
     
     student = relationship("Student", back_populates="assignments")
     commitments = relationship("Commitment", back_populates="assignment", uselist=False)

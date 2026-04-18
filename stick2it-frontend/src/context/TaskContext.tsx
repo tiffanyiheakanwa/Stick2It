@@ -26,7 +26,7 @@ interface TaskContextType {
   handleVerify: (vToken: string, action: 'kept' | 'broken') => Promise<void>;
   startTask: (assignmentId:number)=> void;
   setGlobalTaskInput: (value: string) => void;
-  addReminder: (title: string, time: string, priority?:string)=> Promise<void>;
+  addReminder: (title: string, time: string, priority?:string, isSubtask?: boolean)=> Promise<void>;
   toggleReminder: (id:number) => void;
   handleRespond: (id: number, action: 'accept' | 'refuse') => Promise<void>;
 }
@@ -78,9 +78,35 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(false);
   }, []);
   
+  const [hasSyncedThisSession, setHasSyncedThisSession] = useState(false);
+
   useEffect(() => {
     if (token && studentId) {
-      refreshData();
+      if (!hasSyncedThisSession) {
+        setHasSyncedThisSession(true);
+        // Trigger background sync on first load of the session
+        fetch(`http://localhost:8000/api/v1/students/me/sync-assignments`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        .then(res => res.json().then(data => ({status: res.status, data})))
+        .then(resObj => {
+          if (resObj.status === 401 && resObj.data?.detail?.includes("expired")) {
+            toast.error("Your external account token expired. Please completely sign out and logically click 'Continue with Google' to restore syncing.", { duration: 8000 });
+            refreshData(); 
+          } else if (resObj.status === 200 && resObj.data?.synced_count > 0) {
+            toast.success(`Synced ${resObj.data.synced_count} tasks from your platforms!`, { duration: 4000 });
+            refreshData(); 
+          } else {
+            refreshData();
+          }
+        }).catch(err => {
+           console.error("Auto-sync error:", err);
+           refreshData();
+        });
+      } else {
+        refreshData();
+      }
     }
   }, [token, studentId]);
 
@@ -223,7 +249,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  const addReminder = async (title: string, time: string, priority: string = "Medium") => {
+  const addReminder = async (title: string, time: string, priority: string = "Medium", isSubtask: boolean = false) => {
     if (!title.trim()) return;
     
     setIsSaving(true);
@@ -237,7 +263,8 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({
           title,
           committed_datetime: new Date().toISOString(),
-          stake_value: 10
+          stake_value: 10,
+          stake_type: isSubtask ? "AI_Subtask" : "Points"
         }),
       });
 
@@ -253,7 +280,8 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
             status: "pending",
             completed: false,
             date: new Date().toISOString().split('T')[0],
-            aiSuggested: false,
+            aiSuggested: isSubtask,
+            stake_type: isSubtask ? "AI_Subtask" : "Points",
             priority: priority ,
             category: "General"
           },

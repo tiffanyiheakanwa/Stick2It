@@ -5,10 +5,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { AlertCircle, CheckCircle2, XCircle } from "lucide-react";
 import { useTasks } from '../../context/TaskContext';
+import { BuddySkeleton } from "../../components/dashboard/BuddySkeleton";
 import toast from 'react-hot-toast';
 
 export function BuddyView() {
-  const { supervisedTasks, handleVerify, refreshData, token, studentId } = useTasks();
+  const { supervisedTasks, handleVerify, refreshData, token, studentId, loading } = useTasks();
 
   const [confirmingTask, setConfirmingTask] = useState<any | null>(null);
 
@@ -33,6 +34,8 @@ export function BuddyView() {
       }
     }
   };
+
+  if (loading) return <BuddySkeleton />;
 
   return (
     <div className="p-6 space-y-6">

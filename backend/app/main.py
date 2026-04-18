@@ -22,12 +22,17 @@ from backend.app.database import get_db_session, SessionLocal
 from backend.app.models import Student, Commitment, Notification, Prediction
 from backend.app.config import serializer, SECURITY_SALT
 from .tasks import process_student_nudge_task
+from backend.src.ingestion import AssignmentIngestor
 
 # =========================
 # Auth & Security Helpers
 # =========================
+import os
 import jwt
-SECRET_KEY = "SUPER_SECRET_KEY_CHANGE_THIS_TO_BE_SECURE"
+from fastapi.responses import RedirectResponse
+from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build
+from backend.app.config import SECRET_KEY
 security = HTTPBearer()
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)) -> int:
@@ -167,13 +172,23 @@ async def login(data: dict = Body(...)):
             "student": {
                 "id": student.id,
                 "name": student.name,
-                "email": student.email
+                "email": student.email,
+                "is_google_connected": bool(student.ext_access_token)
             }
         }
 
 @app.get("/api/v1/me")
 async def me(current_user_id: int = Depends(get_current_user)):
-    return {"student_id": current_user_id}
+    with get_db_session() as session:
+        student = session.get(Student, current_user_id)
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        return {
+            "id": student.id,
+            "name": student.name,
+            "email": student.email,
+            "is_google_connected": bool(student.ext_access_token)
+        }
 
 @app.get("/api/v1/students/me/preferences")
 async def get_preferences(current_user_id: int = Depends(get_current_user)):
@@ -207,6 +222,122 @@ async def update_preferences(data: dict = Body(...), current_user_id: int = Depe
 @app.get("/api/v1/health")
 async def health():
     return {"status": "online", "version": "1.0"}
+
+@app.post("/api/v1/students/me/sync-assignments")
+async def sync_assignments(current_user_id: int = Depends(get_current_user)):
+    with get_db_session() as session:
+        student = session.get(Student, current_user_id)
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        ingestor = AssignmentIngestor(session)
+        try:
+            result = ingestor.sync_for_student(student.id)
+            if result.get("success"):
+                return {"success": True, "synced_count": result.get("synced_count", 0)}
+            elif result.get("needs_reauth"):
+                raise HTTPException(status_code=401, detail=result.get("error"))
+            else:
+                raise HTTPException(status_code=500, detail=result.get("error"))
+        except Exception as e:
+            logger.error(f"Sync failed: {e}")
+            raise HTTPException(status_code=500, detail="Sync operation failed")
+
+# =========================
+# GOOGLE OAUTH FLOW
+# =========================
+# Only for local development
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
+
+GOOGLE_CLIENT_SECRETS_FILE = os.path.join(os.path.dirname(__file__), "client_secret.json")
+GOOGLE_SCOPES = [
+    'openid',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/classroom.courses.readonly',
+    'https://www.googleapis.com/auth/classroom.coursework.me.readonly',
+    'https://www.googleapis.com/auth/classroom.student-submissions.me.readonly'
+]
+GOOGLE_REDIRECT_URI = "http://localhost:8000/api/v1/auth/google/callback"
+
+# Temporary cache to store PKCE code verifier across the redirect
+# In production, use encrypted cookies or Redis.
+OAUTH_STATE_CACHE = {}
+
+@app.get("/api/v1/auth/google")
+async def google_login():
+    if not os.path.exists(GOOGLE_CLIENT_SECRETS_FILE):
+        return RedirectResponse(url="http://localhost:5173/?error=MissingClientSecret")
+    
+    flow = Flow.from_client_secrets_file(
+        GOOGLE_CLIENT_SECRETS_FILE,
+        scopes=GOOGLE_SCOPES,
+        redirect_uri=GOOGLE_REDIRECT_URI
+    )
+    
+    authorization_url, state = flow.authorization_url(
+        access_type='offline',
+        include_granted_scopes='true',
+        prompt='consent'
+    )
+    
+    # Store the generated PKCE verifier using the state string as the key
+    OAUTH_STATE_CACHE[state] = getattr(flow, 'code_verifier', None)
+    
+    return RedirectResponse(url=authorization_url)
+
+@app.get("/api/v1/auth/google/callback")
+async def google_callback(state: str, code: str):
+    try:
+        flow = Flow.from_client_secrets_file(
+            GOOGLE_CLIENT_SECRETS_FILE,
+            scopes=GOOGLE_SCOPES,
+            state=state,
+            redirect_uri=GOOGLE_REDIRECT_URI
+        )
+        
+        # Restore the PKCE code verifier to avoid internal (invalid_grant) errors
+        code_verifier = OAUTH_STATE_CACHE.pop(state, None)
+        if code_verifier:
+            flow.code_verifier = code_verifier
+            
+        flow.fetch_token(code=code)
+        credentials = flow.credentials
+        
+        user_info_service = build('oauth2', 'v2', credentials=credentials)
+        user_info = user_info_service.userinfo().get().execute()
+        
+        email = user_info.get("email", "").lower()
+        name = user_info.get("name", "Student")
+        
+        if not email:
+            return RedirectResponse(url="http://localhost:5173/?error=InvalidGoogleAccount")
+            
+        with get_db_session() as session:
+            student = session.query(Student).filter_by(email=email).first()
+            if not student:
+                student = Student(name=name, email=email, auth_provider="google")
+                session.add(student)
+                session.commit()
+            
+            student.auth_provider = "google"
+            student.ext_access_token = credentials.token
+            student.ext_refresh_token = credentials.refresh_token if credentials.refresh_token else student.ext_refresh_token
+            session.commit()
+            
+            token = jwt.encode(
+                {"sub": str(student.id), "exp": datetime.utcnow() + timedelta(hours=1)}, 
+                SECRET_KEY, 
+                algorithm="HS256"
+            )
+            
+            frontend_url = f"http://localhost:5173/?token={token}"
+            return RedirectResponse(url=frontend_url)
+            
+    except Exception as e:
+        logger.error(f"Google Callback Error: {e}")
+        return RedirectResponse(url="http://localhost:5173/?error=ServerAuthError")
 
 # =========================
 # PREDICTION
@@ -285,8 +416,8 @@ async def buddy_verification_page(token: str):
                 <h1>Stick2It Accountability</h1>
                 <p>Did your friend complete: <strong>{commitment.assignment.title if commitment.assignment else (commitment.custom_title or "their task")}</strong>?</p>
                 <div style="margin-top: 30px;">
-                    <a href="/verify/{token}/kept" style="padding: 15px 25px; background: #28a745; color: white; text-decoration: none; border-radius: 5px; margin-right: 10px;"> Yes, they kept it!</a>
-                    <a href="/verify/{token}/broken" style="padding: 15px 25px; background: #dc3545; color: white; text-decoration: none; border-radius: 5px;"> No, they failed.</a>
+                    <a href="/verify/{token}/kept" style="padding: 15px 25px; background: #28a745; color: white; text-decoration: none; border-radius: 5px; margin-right: 10px;">✅ Yes, they kept it!</a>
+                    <a href="/verify/{token}/broken" style="padding: 15px 25px; background: #dc3545; color: white; text-decoration: none; border-radius: 5px;">❌ No, they failed.</a>
                 </div>
             </body>
         </html>
@@ -410,6 +541,7 @@ async def create_commitment(data: dict = Body(...), current_user_id: int = Depen
             buddy_name=data.get("buddy_name"),
             buddy_email=data.get("buddy_email"),
             stake_value=data.get("stake_value", 10),
+            stake_type=data.get("stake_type", "Points"),
             content_id=data.get("content_id"),
         )
         
@@ -433,6 +565,36 @@ async def create_commitment(data: dict = Body(...), current_user_id: int = Depen
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=422, detail=str(e))
+
+@app.patch("/api/v1/commitments/{commit_id}/activate")
+async def activate_commitment(commit_id: int, data: dict = Body(...), current_user_id: int = Depends(get_current_user)):
+    with get_db_session() as session:
+        commitment = session.get(Commitment, commit_id)
+        if not commitment or commitment.student_id != current_user_id:
+            raise HTTPException(status_code=404, detail="Commitment not found")
+            
+        if commitment.status != 'requires_stake':
+            raise HTTPException(status_code=400, detail="Only unsaved assignments can be activated")
+
+        buddy_name = data.get("buddy_name")
+        stake_value = data.get("stake_value", 10)
+        
+        commitment.buddy_name = buddy_name
+        commitment.buddy_email = data.get("buddy_email")
+        commitment.stake_value = stake_value
+        commitment.status = 'pending'
+        
+        custom_title = commitment.assignment.title if commitment.assignment else (commitment.custom_title or "Task")
+        
+        # We assume `committed_datetime` maps to assignment deadline natively now.
+        c_dt = commitment.committed_datetime or datetime.utcnow()
+        commitment.penalty_message = f"Lose {stake_value} points if {custom_title} is not completed by {c_dt}"
+        
+        session.commit()
+        
+        commitment_manager._send_initial_buddy_alert(commitment)
+        
+        return {"success": True, "message": "Assignment Activated!"}
 
 @app.patch("/api/v1/commitments/{commit_id}/start")
 async def start_commitment(commit_id: int, current_user_id: int = Depends(get_current_user)):
@@ -482,6 +644,43 @@ async def get_buddy_commitments(current_user_id: int = Depends(get_current_user)
             })
             
         return {"success": True, "commitments": results}
+
+# =========================
+# AI SUGGESTIONS
+# =========================
+from backend.src.task_ai import task_ai_service
+from typing import Optional, List
+from pydantic import BaseModel
+
+class TaskBreakdownRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+
+class SubtaskItem(BaseModel):
+    title: str
+    estimated_minutes: int
+
+class TaskBreakdownResponse(BaseModel):
+    success: bool
+    subtasks: List[SubtaskItem]
+
+@app.post("/api/v1/ai/breakdown", response_model=TaskBreakdownResponse)
+async def breakdown_task_api(req: TaskBreakdownRequest, current_user_id: int = Depends(get_current_user)):
+    stats = commitment_manager.get_student_stats(current_user_id)
+    subtasks = task_ai_service.breakdown_task(req.title, req.description, behavioral_context=stats)
+    return {"success": True, "subtasks": subtasks}
+
+@app.post("/api/v1/interactions")
+async def log_interaction(data: dict = Body(...), current_user_id: int = Depends(get_current_user)):
+    with get_db_session() as session:
+        from backend.app.models import Interaction
+        interaction = Interaction(
+            student_id=current_user_id,
+            action_type=data.get("action_type")
+        )
+        session.add(interaction)
+        session.commit()
+        return {"success": True}
 
 # =========================
 # STUDENT STATS
