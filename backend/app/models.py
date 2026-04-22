@@ -44,6 +44,8 @@ class Student(Base):
         self.password_hash = generate_password_hash(password)
 
     def verify_password(self, password):
+        if not self.password_hash:
+            return False
         return check_password_hash(self.password_hash, password)
 
     # Relationships

@@ -23,7 +23,9 @@ from backend.app.models import Student, Commitment, Notification, Prediction
 from backend.app.config import serializer, SECURITY_SALT
 from .tasks import process_student_nudge_task
 from backend.src.ingestion import AssignmentIngestor
+from ..src.database_setup import engine, Base 
 
+Base.metadata.create_all(bind=engine)
 # =========================
 # Auth & Security Helpers
 # =========================
@@ -147,14 +149,41 @@ async def test_cors():
 async def register(data: dict = Body(...)):
     with get_db_session() as session:
         email = data["email"].strip().lower()
-        if session.query(Student).filter_by(email=email).first():
-            raise HTTPException(status_code=400, detail="Email already registered")
+        # 1. Check if a student with this email already exists
+        existing_student = session.query(Student).filter_by(email=email).first()
 
+        if existing_student:
+            # 2. If they have a password already, it's a true conflict
+            if existing_student.password_hash:
+                raise HTTPException(status_code=400, detail="Email already registered")
+            
+            # 3. If no password exists, they likely used Google Auth. 
+            # We "link" the account by setting the password now.
+            existing_student.name = data.get("name", existing_student.name)
+            existing_student.set_password(data["password"])
+            
+            # Optional: Update auth_provider to track that they now have both
+            if hasattr(existing_student, 'auth_provider'):
+                existing_student.auth_provider = "both"
+
+            session.commit()
+            return {
+                "success": True, 
+                "message": "Account linked successfully", 
+                "student_id": existing_student.id
+            }
+
+        # 4. Standard registration for brand new users
         student = Student(name=data["name"], email=email)
         student.set_password(data["password"])
 
+        # Set default provider if your model uses it
+        if hasattr(student, 'auth_provider'):
+            student.auth_provider = "local"
+
         session.add(student)
         session.commit()
+        session.refresh(student)
         return {"success": True, "student_id": student.id}
 
 @app.post("/api/v1/auth/login")
