@@ -95,7 +95,7 @@ export function DashboardView() {
       />
 
       <div className="flex flex-col xl:flex-row gap-5">
-        <div className="xl:flex-1 min-w-0">
+        <div className="xl:flex-1 min-w-0 space-y-3">
           <StakesAtRiskCard commitments={localCommitments} loading={loading} />
           <NudgesNotifications externalNudges={nudges}/>
         </div>

@@ -38,7 +38,9 @@ def check_commitments():
         with get_db_session() as session:
             # Fetch all pending tasks that need checking
             logger.info("Running job: check_commitments")
-            pending = session.query(Commitment).filter_by(status='pending').all()
+            pending = session.query(Commitment).filter(
+                Commitment.status.in_(['pending', 'requires_stake', 'in_progress'])
+            ).all()
             for c in pending:
                 # Pass the ID to the check function
                 commitment_system.check_commitment(c.id)

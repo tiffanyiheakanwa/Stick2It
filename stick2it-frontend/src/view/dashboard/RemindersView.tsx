@@ -15,7 +15,7 @@ import { RemindersSkeleton } from "../../components/dashboard/RemindersSkeleton"
 
 
 export function RemindersView(){
-  const { commitments, loading, token, refreshData } = useTasks();
+  const { commitments, loading, token, refreshData, deleteReminder } = useTasks();
   const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
   const [modalOpen, setModalOpen] = useState(false);
   const [activeCommitId, setActiveCommitId] = useState<number | null>(null);
@@ -30,7 +30,7 @@ export function RemindersView(){
   };
 
   const filteredReminders = commitments.filter((c) => {
-    if (filter === "active") return c.status === "pending" || c.status === "requires_stake";
+    if (filter === "active") return c.status === "pending" || c.status === "requires_stake" || c.status === "in_progress";
     if (filter === "completed") return c.status === "kept" || c.status === "completed";
     return true;
   });
@@ -125,6 +125,17 @@ export function RemindersView(){
                       onClick={() => handleActivate(commitment.id, commitment.title, commitment.committed_datetime)}
                     >
                       Activate (Set Stake)
+                    </Button>
+                  )}
+                  {commitment.status === 'requires_stake' && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => deleteReminder(commitment.id)} 
+                      className="text-red-400 hover:text-red-500 hover:bg-red-50 mt-1 border-red-200"
+                      title="Ignore/Delete Task"
+                    >
+                      Delete
                     </Button>
                   )}
                 </div>

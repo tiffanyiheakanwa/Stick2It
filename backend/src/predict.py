@@ -68,7 +68,9 @@ class ProcrastinationPredictor:
                     "prediction": "disabled",
                     "reason": "User opted out of predictive modeling",
                     "risk_category": None,
-                    "risk_score": 50
+                    "risk_score": 50.0,
+                    "probability_high_risk": 0.5,
+                    "probability_low_risk": 0.5
                 }
         
             behavior = session.query(StudentBehavior).filter(
@@ -77,43 +79,61 @@ class ProcrastinationPredictor:
             
             if not behavior:
                 logger.info(f"New student {student_id} detected. Using default risk profile.")
-                # Return a default risk score (e.g., 50%) or a mock data structure
-                return {
-                    'p_fail': 0.5, 
+                result = {
+                    'prediction': 'medium_risk',
                     'risk_category': 'Medium',
                     'is_new_user': True
                 }
+                adjusted_prob = 0.5
+            else:
+                now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
-            now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+                features = {
+                    'last_minute_ratio': behavior.last_minute_ratio,
+                    'engagement_intensity': behavior.engagement_intensity,
+                    'deadline_pressure': behavior.deadline_pressure,
+                    'login_consistency': behavior.login_consistency,
+                    'early_starter': behavior.early_starter,
+                    'completion_rate': behavior.completion_rate,
+                    'activity_span': behavior.activity_span,
+                    'hour_of_day': now.hour,
+                    'day_of_week': now.weekday()  # 0=Monday, 6=Sunday
+                }
 
-            features = {
-                'last_minute_ratio': behavior.last_minute_ratio,
-                'engagement_intensity': behavior.engagement_intensity,
-                'deadline_pressure': behavior.deadline_pressure,
-                'login_consistency': behavior.login_consistency,
-                'early_starter': behavior.early_starter,
-                'completion_rate': behavior.completion_rate,
-                'activity_span': behavior.activity_span,
-                'hour_of_day': now.hour,
-                'day_of_week': now.weekday()  # 0=Monday, 6=Sunday
-            }
+                result = self.predict_risk(features)
+                
+                # Apply dynamic AI feedback based on actual outcomes
+                recent_preds = session.query(Prediction).filter(
+                    Prediction.student_id == student_id,
+                    Prediction.actual_outcome.isnot(None)
+                ).order_by(Prediction.predicted_at.desc()).limit(3).all()
+                
+                modifier = 0.0
+                for p in recent_preds:
+                    if p.actual_outcome == 1:
+                        modifier -= 0.08  # Success reduces risk
+                    else:
+                        modifier += 0.12  # Failure increases risk
+                
+                adjusted_prob = max(0.01, min(0.99, result['probability_high_risk'] + modifier))
 
-            result = self.predict_risk(features)
+
             
-            # Apply dynamic AI feedback based on actual outcomes
-            recent_preds = session.query(Prediction).filter(
-                Prediction.student_id == student_id,
-                Prediction.actual_outcome.isnot(None)
-            ).order_by(Prediction.predicted_at.desc()).limit(3).all()
+            # Check pending task risks to ensure the overall risk reflects the highest current task risk
+            pending_commitments = session.query(Commitment).filter_by(
+                student_id=student_id, status='pending'
+            ).all()
             
-            modifier = 0.0
-            for p in recent_preds:
-                if p.actual_outcome == 1:
-                    modifier -= 0.08  # Success reduces risk
-                else:
-                    modifier += 0.12  # Failure increases risk
+            max_task_risk = 0.0
+            for c in pending_commitments:
+                task_pred = session.query(Prediction).filter_by(
+                    student_id=student_id, assignment_id=c.assignment_id
+                ).order_by(Prediction.predicted_at.desc()).first()
+                if task_pred and task_pred.risk_score and task_pred.risk_score > max_task_risk:
+                    max_task_risk = task_pred.risk_score
+
+            adjusted_prob = max(adjusted_prob, max_task_risk)
             
-            adjusted_prob = max(0.01, min(0.99, result['probability_high_risk'] + modifier))
             result['probability_high_risk'] = adjusted_prob
             result['risk_score'] = round(adjusted_prob * 100, 2)
             

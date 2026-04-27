@@ -640,13 +640,25 @@ async def start_commitment(commit_id: int, current_user_id: int = Depends(get_cu
         
         return {"success": True, "message": "Task started"}
 
+@app.delete("/api/v1/commitments/{commit_id}")
+async def delete_commitment(commit_id: int, current_user_id: int = Depends(get_current_user)):
+    with get_db_session() as session:
+        commitment = session.get(Commitment, commit_id)
+        if not commitment or commitment.student_id != current_user_id:
+            raise HTTPException(status_code=404, detail="Commitment not found")
+        
+        commitment.status = "expired"
+        session.commit()
+        
+        return {"success": True, "message": "Task ignored/deleted successfully"}
+
 @app.get("/api/v1/buddy/commitments")
 async def get_buddy_commitments(current_user_id: int = Depends(get_current_user)):
     with get_db_session() as session:
         student = session.get(Student, current_user_id)
-        commitments = session.query(Commitment).filter_by(
-            buddy_email=student.email,
-            status='pending'
+        commitments = session.query(Commitment).filter(
+            Commitment.buddy_email == student.email,
+            Commitment.status.in_(['pending', 'in_progress'])
         ).all()
 
         results = []
@@ -767,9 +779,9 @@ async def get_nudges(student_id: int, context: str = "dashboard", auth: int = De
         standard_nudges = [nudge] if nudge else []
 
     with get_db_session() as session:
-        commitments = session.query(Commitment).filter_by(
-            student_id=student_id, 
-            status='pending'
+        commitments = session.query(Commitment).filter(
+            Commitment.student_id == student_id,
+            Commitment.status.in_(['pending', 'in_progress'])
         ).all()
         
         ai_risk_nudges = []
@@ -784,7 +796,7 @@ async def get_nudges(student_id: int, context: str = "dashboard", auth: int = De
                     "id": f"ai-risk-{c.id}",
                     "type": "AI_DYNAMIC_RISK",
                     "p_fail": pred.risk_score, 
-                    "message": f"High risk detected! You're likely to procrastinate on '{c.custom_title or 'your task'}'.",
+                    "message": f"High risk detected! You're likely to procrastinate on '{c.custom_title or (c.assignment.title if c.assignment else 'your task')}'.",
                     "stakeValue": c.stake_value,
                     "stakeType": c.stake_type,
                     "buddyName": c.buddy_name

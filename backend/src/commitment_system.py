@@ -67,7 +67,7 @@ class CommitmentSystem:
         with get_db_session() as session:
             commitment = session.query(Commitment).filter(Commitment.id == commitment_id).first()
 
-            if not commitment or commitment.status != "pending":
+            if not commitment or commitment.status not in ["pending", "requires_stake", "in_progress"]:
                 return {"success": False, "error": "Invalid or inactive commitment"}
 
             now = actual_action_time or datetime.utcnow()
@@ -77,14 +77,19 @@ class CommitmentSystem:
                 deadline = commitment.committed_datetime    
                         
             # Strict Integrity Enforcement
-            if now > deadline:
-                # Optional 1-hour grace period if explicitly requested for UX
-                if allow_grace_period and now <= (deadline + timedelta(hours=1)):
-                    return {"success": True, "status": "pending", "message": "In grace period"}
+            if deadline and now > deadline:
+                if commitment.status == "requires_stake":
+                    commitment.status = "expired"
+                    session.commit()
+                    return {"success": True, "status": "expired"}
                 else:
-                    return self._process_failure(commitment)
+                    # Optional 1-hour grace period if explicitly requested for UX
+                    if allow_grace_period and now <= (deadline + timedelta(hours=1)):
+                        return {"success": True, "status": "pending", "message": "In grace period"}
+                    else:
+                        return self._process_failure(session, commitment)
             
-            return {"success": True, "status": "pending"}
+            return {"success": True, "status": commitment.status}
 
     def verify_commitment(self, token):
         """
@@ -135,8 +140,28 @@ class CommitmentSystem:
     def get_student_stats(self, student_id):
         with get_db_session() as session:
             commitments = session.query(Commitment).filter(
-                Commitment.student_id == student_id
+                Commitment.student_id == student_id,
+                Commitment.status != 'expired'
             ).order_by(Commitment.committed_datetime.desc()).all()
+            
+            # Lazily evaluate deadlines to ensure frontend is always up to date
+            now = datetime.utcnow()
+            valid_commitments = []
+            for c in commitments:
+                deadline = c.assignment.due_date if c.assignment else c.committed_datetime
+                if deadline and now > deadline:
+                    if c.status == 'requires_stake':
+                        c.status = 'expired'
+                        session.commit()
+                        continue # Skip adding to valid_commitments
+                    elif c.status in ['pending', 'in_progress']:
+                        self._process_failure(session, c)
+                        session.commit()
+                        valid_commitments.append(c)
+                    else:
+                        valid_commitments.append(c)
+                else:
+                    valid_commitments.append(c)
             
             points_record = session.query(StudentPoints).filter(
                 StudentPoints.student_id == student_id
@@ -159,7 +184,7 @@ class CommitmentSystem:
                         "committed_datetime": c.committed_datetime.isoformat(),
                         "title": c.assignment.title if c.assignment else (c.custom_title or "Task"),
                         "source_platform": c.assignment.source_platform if c.assignment else "local"
-                    } for c in commitments
+                    } for c in valid_commitments
                 ]
             }
 

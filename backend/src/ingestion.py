@@ -36,6 +36,7 @@ class AssignmentIngestor:
                 return {"success": True, "synced_count": 0, "message": "No active courses found."}
                 
             synced_count = 0
+            active_external_ids = []
             
             for course in courses:
                 course_id = course.get('id')
@@ -45,6 +46,8 @@ class AssignmentIngestor:
                 
                 for work in works:
                     work_id = work.get('id')
+                    external_id = f"g_classroom_{work_id}"
+                    active_external_ids.append(external_id)
                     title = work.get('title', 'Untitled Google Assignment')
                     description = work.get('description', '')
                     
@@ -75,6 +78,20 @@ class AssignmentIngestor:
                     )
                     synced_count += 1
                     
+            # Handle deleted assignments
+            obsolete_assignments = self.session.query(Assignment).filter(
+                Assignment.student_id == student.id,
+                Assignment.source_platform == "google",
+                ~Assignment.external_id.in_(active_external_ids)
+            ).all()
+            
+            from backend.app.models import Commitment
+            for obs in obsolete_assignments:
+                commits = self.session.query(Commitment).filter_by(assignment_id=obs.id).all()
+                for c in commits:
+                    if c.status in ["pending", "requires_stake"]:
+                        c.status = "expired"
+
             self.session.commit()
             return {"success": True, "synced_count": synced_count}
             
@@ -85,6 +102,9 @@ class AssignmentIngestor:
             logger.error(f"Google Classroom API Error: {error}")
             return {"success": False, "error": "An error occurred with Google APIs"}
         except Exception as e:
+            from google.auth.exceptions import RefreshError
+            if isinstance(e, RefreshError):
+                return {"success": False, "error": "Google token expired. Please re-login.", "needs_reauth": True}
             logger.error(f"Ingestion Error: {e}")
             return {"success": False, "error": str(e)}
 
@@ -106,6 +126,11 @@ class AssignmentIngestor:
             existing.title = title
             existing.description = description
             existing.due_date = due_date
+            
+            from backend.app.models import Commitment
+            commitment = self.session.query(Commitment).filter_by(assignment_id=existing.id).first()
+            if commitment and due_date:
+                commitment.committed_datetime = due_date
         else:
             # Insert entirely new mapping
             new_assign = Assignment(
