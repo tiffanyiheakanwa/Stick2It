@@ -119,7 +119,7 @@ def startup_event():
     logger.info("Scheduler started on API startup.")
 
 @app.on_event("startup")
-@repeat_every(seconds=60 * 60)
+@repeat_every(seconds=60 * 15)
 def automated_nudge_monitoring():
     logger.info(" Initiating parallel nudge cycle...")
     
@@ -421,8 +421,27 @@ async def get_progress(student_id: int, auth: int = Depends(authorize_student)):
 # =========================
 # VERIFICATION (WebSocket-backed)
 # =========================
+from fastapi import Form
+
+verification_attempts = {}
+
 @app.get("/verify/{token}", response_class=HTMLResponse)
-async def buddy_verification_page(token: str):
+async def buddy_verification_page(token: str, request: Request):
+    client_ip = request.client.host
+    now = time.time()
+    
+    # Rate limit: max 10 requests per minute
+    if client_ip in verification_attempts:
+        attempts, start_time = verification_attempts[client_ip]
+        if now - start_time < 60:
+            if attempts >= 10:
+                return "<h1>Too Many Requests</h1><p>Please try again later.</p>"
+            verification_attempts[client_ip] = (attempts + 1, start_time)
+        else:
+            verification_attempts[client_ip] = (1, now)
+    else:
+        verification_attempts[client_ip] = (1, now)
+
     try:
         commitment_id = serializer.loads(
             token, 
@@ -444,9 +463,13 @@ async def buddy_verification_page(token: str):
             <body style="font-family: sans-serif; text-align: center; padding: 50px;">
                 <h1>Stick2It Accountability</h1>
                 <p>Did your friend complete: <strong>{commitment.assignment.title if commitment.assignment else (commitment.custom_title or "their task")}</strong>?</p>
-                <div style="margin-top: 30px;">
-                    <a href="/verify/{token}/kept" style="padding: 15px 25px; background: #28a745; color: white; text-decoration: none; border-radius: 5px; margin-right: 10px;">✅ Yes, they kept it!</a>
-                    <a href="/verify/{token}/broken" style="padding: 15px 25px; background: #dc3545; color: white; text-decoration: none; border-radius: 5px;">❌ No, they failed.</a>
+                <div style="margin-top: 30px; display: flex; justify-content: center; gap: 20px;">
+                    <a href="/verify/{token}/kept" style="padding: 15px 25px; background: #28a745; color: white; text-decoration: none; border-radius: 5px; height: 20px; display: inline-block;">✅ Yes, they kept it!</a>
+                    
+                    <form action="/verify/{token}/broken" method="POST" style="margin: 0;">
+                        <input type="text" name="reason" placeholder="Reason for failure (optional)" style="padding: 10px; border-radius: 5px; border: 1px solid #ccc; margin-bottom: 10px; width: 250px; display: block;" />
+                        <button type="submit" style="padding: 15px 25px; background: #dc3545; color: white; text-decoration: none; border-radius: 5px; border: none; cursor: pointer; width: 100%;">❌ No, they failed.</button>
+                    </form>
                 </div>
             </body>
         </html>
@@ -481,8 +504,8 @@ async def process_kept(token: str):
                 
     return f"<h1>Success!</h1><p>{result.get('message', 'Commitment verified.')}</p>"
 
-@app.get("/verify/{token}/broken", response_class=HTMLResponse)
-async def process_broken(token: str):
+@app.post("/verify/{token}/broken", response_class=HTMLResponse)
+async def process_broken(token: str, reason: str = Form(None)):
     with get_db_session() as session:
         commitment = session.query(Commitment).filter(Commitment.verification_token == token).first()
         if commitment:
@@ -490,9 +513,13 @@ async def process_broken(token: str):
             commitment_manager._process_failure(session, commitment)
             MLFeedbackLoop.log_actual_outcome(session, commitment.student_id, commitment.assignment_id, stayed_on_track=False)
 
+            fail_msg = f"Your buddy marked your task '{commitment.custom_title or 'Task'}' as failed. Penalty applied."
+            if reason:
+                fail_msg += f" Reason given: {reason}"
+
             new_notif = Notification(
                 recipient_id=student_id,
-                message=f"Your buddy marked your task '{commitment.custom_title or 'Task'}' as failed. Penalty applied.",
+                message=fail_msg,
                 type="system_alert",
                 status="unread"
             )
@@ -721,6 +748,17 @@ async def log_interaction(data: dict = Body(...), current_user_id: int = Depends
         )
         session.add(interaction)
         session.commit()
+        # Real-Time Trigger: Evaluate risk immediately
+        from backend.src.scheduler import process_student_nudge_task
+        process_student_nudge_task.delay(current_user_id)
+        
+        # Calculate new risk and push to websocket
+        try:
+            risk_data = predictor.predict_from_database(current_user_id)
+            await manager.send_personal_message({"type": "RISK_UPDATE", "data": risk_data}, current_user_id)
+        except Exception as e:
+            logger.error(f"WS push failed: {e}")
+        
         return {"success": True}
 
 # =========================
@@ -785,17 +823,18 @@ async def get_nudges(student_id: int, context: str = "dashboard", auth: int = De
         ).all()
         
         ai_risk_nudges = []
-        for c in commitments:
-            pred = session.query(Prediction).filter_by(
-                student_id=student_id,
-                assignment_id=c.assignment_id
-            ).order_by(Prediction.predicted_at.desc()).first()
-            
-            if pred and pred.risk_score > 0.6: 
+        try:
+            risk_data = predictor.predict_from_database(student_id)
+            current_risk = risk_data.get('probability_high_risk', 0.5)
+        except Exception:
+            current_risk = 0.5
+
+        if current_risk > 0.6: 
+            for c in commitments:
                 ai_risk_nudges.append({
                     "id": f"ai-risk-{c.id}",
                     "type": "AI_DYNAMIC_RISK",
-                    "p_fail": pred.risk_score, 
+                    "p_fail": current_risk, 
                     "message": f"High risk detected! You're likely to procrastinate on '{c.custom_title or (c.assignment.title if c.assignment else 'your task')}'.",
                     "stakeValue": c.stake_value,
                     "stakeType": c.stake_type,

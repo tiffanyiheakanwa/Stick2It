@@ -86,7 +86,39 @@ class ProcrastinationPredictor:
                 }
                 adjusted_prob = 0.5
             else:
-                now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+                now = datetime.datetime.now(datetime.timezone.utc)
+                
+                # Real-Time Time Pressure Calculation
+                pending_commitments = session.query(Commitment).filter_by(
+                    student_id=student_id, status='pending'
+                ).all()
+                
+                total_pressure = 0.0
+                valid_tasks = 0
+                
+                for c in pending_commitments:
+                    deadline = c.assignment.due_date if c.assignment else c.committed_datetime
+                    if deadline:
+                        # ensure timezone aware
+                        if deadline.tzinfo is None:
+                            deadline = deadline.replace(tzinfo=datetime.timezone.utc)
+                            
+                        time_remaining_hrs = (deadline - now).total_seconds() / 3600.0
+                        if time_remaining_hrs > 0:
+                            # Work Required / Time Remaining
+                            pressure = (c.stake_value or 10) / time_remaining_hrs
+                            total_pressure += pressure
+                            valid_tasks += 1
+                
+                if valid_tasks > 0:
+                    behavior.deadline_pressure = min(10.0, total_pressure / valid_tasks) # cap at 10.0
+                    session.commit()
+
+                last_login_aware = behavior.last_login
+                if last_login_aware and last_login_aware.tzinfo is None:
+                    last_login_aware = last_login_aware.replace(tzinfo=datetime.timezone.utc)
+                
+                time_since_last_interaction = (now - last_login_aware).total_seconds() / 3600.0 if last_login_aware else 0.0
 
                 features = {
                     'last_minute_ratio': behavior.last_minute_ratio,
@@ -96,24 +128,26 @@ class ProcrastinationPredictor:
                     'early_starter': behavior.early_starter,
                     'completion_rate': behavior.completion_rate,
                     'activity_span': behavior.activity_span,
+                    'time_since_last_interaction': time_since_last_interaction,
                     'hour_of_day': now.hour,
                     'day_of_week': now.weekday()  # 0=Monday, 6=Sunday
                 }
 
                 result = self.predict_risk(features)
                 
-                # Apply dynamic AI feedback based on actual outcomes
+                # Apply dynamic AI feedback based on actual outcomes (Weighted EMA)
                 recent_preds = session.query(Prediction).filter(
                     Prediction.student_id == student_id,
                     Prediction.actual_outcome.isnot(None)
                 ).order_by(Prediction.predicted_at.desc()).limit(3).all()
                 
                 modifier = 0.0
-                for p in recent_preds:
+                weights = [0.6, 0.3, 0.1] # heavily weight most recent task
+                for i, p in enumerate(recent_preds):
                     if p.actual_outcome == 1:
-                        modifier -= 0.08  # Success reduces risk
+                        modifier -= 0.15 * weights[i]  # Success reduces risk
                     else:
-                        modifier += 0.12  # Failure increases risk
+                        modifier += 0.20 * weights[i]  # Failure increases risk
                 
                 adjusted_prob = max(0.01, min(0.99, result['probability_high_risk'] + modifier))
 
@@ -147,24 +181,35 @@ class ProcrastinationPredictor:
             for c in commitments:
                 # 2. Predict risk using the task title/custom title
                 task_text = c.custom_title or (c.assignment.title if c.assignment else "Task")
-                prediction_result = self.predict_from_task(task_text)
+                prediction_result = self.predict_from_task(task_text, c.student_id)
                 
-                # 3. Save to the predictions table
-                new_pred = Prediction(
-                    student_id=c.student_id,
-                    assignment_id=c.assignment_id, # Can be None for custom tasks
-                    risk_score=prediction_result['probability_high_risk'],
-                    predicted_at=datetime.datetime.now(datetime.timezone.utc)
-                )
-                session.add(new_pred)
-                print(f" Saved {prediction_result['risk_score']}% risk for: {task_text}")
+                # Apply source_platform penalty
+                source = c.assignment.source_platform if c.assignment else 'local'
+                risk = prediction_result['probability_high_risk']
+                if source in ['google', 'moodle']:
+                    risk = min(0.99, risk + 0.15)
+                
+                # Prevent bloat: only insert if risk changed significantly
+                last_pred = session.query(Prediction).filter_by(
+                    student_id=c.student_id, assignment_id=c.assignment_id
+                ).order_by(Prediction.predicted_at.desc()).first()
+                
+                if not last_pred or abs(last_pred.risk_score - risk) > 0.05:
+                    new_pred = Prediction(
+                        student_id=c.student_id,
+                        assignment_id=c.assignment_id, # Can be None for custom tasks
+                        risk_score=risk,
+                        predicted_at=datetime.datetime.now(datetime.timezone.utc)
+                    )
+                    session.add(new_pred)
+                    print(f" Saved {risk * 100}% risk for: {task_text}")
                 
             session.commit()
     # -----------------------------
     # NEW: Task-based prediction
     # -----------------------------
     def predict_from_task(self, task_description: str, student_id:int=None):
-        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        now = datetime.datetime.now(datetime.timezone.utc)
 
         task_length = len(task_description.split())
     
@@ -189,12 +234,9 @@ class ProcrastinationPredictor:
                 if behavior:
                     features_dict.update({
                         'last_minute_ratio': behavior.last_minute_ratio or 0.5,
-                'completion_rate': behavior.completion_rate or 0.5,
-                'engagement_intensity': behavior.engagement_intensity or 10.0,
-                # 'deadline_pressure': behavior.deadline_pressure or 0.0,
-                # 'login_consistency': behavior.login_consistency or 0.0,
-                # 'early_starter': behavior.early_starter or 0,
-                # 'activity_span': behavior.activity_span or 0.0
+                        'completion_rate': behavior.completion_rate or 0.5,
+                        'engagement_intensity': behavior.engagement_intensity or 10.0,
+                        'deadline_pressure': behavior.deadline_pressure or 0.0,
                     })
                 else:
                     # Fallback for new students with no history

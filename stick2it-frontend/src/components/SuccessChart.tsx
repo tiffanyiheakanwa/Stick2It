@@ -56,15 +56,18 @@ export function SuccessChart() {
     if (commitments && commitments.length > 0) {
       commitments.forEach((c) => {
         // Ensure status matches exactly
-        if ((c.status === 'completed' || c.status === 'kept') && c.committed_datetime) {
-          const d = new Date(c.committed_datetime);
-          const year = d.getFullYear();
-          const month = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
-          const cDateKey = `${year}-${month}-${day}`;
+        if ((c.status === 'completed' || c.status === 'kept')) {
+          const targetDateStr = c.completed_at || c.committed_datetime;
+          if (targetDateStr) {
+            const d = new Date(targetDateStr);
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const cDateKey = `${year}-${month}-${day}`;
 
-          if (dataMap[cDateKey]) {
-            dataMap[cDateKey].count++;
+            if (dataMap[cDateKey]) {
+              dataMap[cDateKey].count++;
+            }
           }
         }
       });

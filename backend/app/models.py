@@ -23,6 +23,8 @@ class Student(Base):
     no_nudges = Column(Boolean, default=False)      # Opt-out for nudges
     nudge_preference = Column(String(50), default="auto") # e.g. "auto", "loss_aversion", "social_accountability"
     model_opt_out = Column(Boolean, default=False)  # Opt-out for ML modeling
+    experimental_group = Column(Boolean, default=False) # A/B testing flag
+    grace_period_lenience = Column(Float, default=1.0) # Hours of lenience
     fcm_token = Column(String, nullable=True)
     
     # OAuth Fields
@@ -62,7 +64,7 @@ class StudentBehavior(Base):
     id = Column(Integer, primary_key=True)
     student_id = Column(Integer, ForeignKey("students.id"))
     last_minute_ratio = Column(Float)
-    last_login = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime(timezone=True), default=func.now())
     engagement_intensity = Column(Float)
     deadline_pressure = Column(Float)
     login_consistency = Column(Float)
@@ -78,7 +80,7 @@ class Assignment(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(200))
     description = Column(Text)
-    due_date = Column(DateTime)
+    due_date = Column(DateTime(timezone=True))
     status = Column(String(20), default="Pending") 
     student_id = Column(Integer, ForeignKey("students.id"))
     
@@ -108,10 +110,10 @@ class Commitment(Base):
     verification_token = Column(String(100), unique=True) 
     
     status = Column(String(20), default='pending') 
-    created_at = Column(DateTime, default=func.now())
-    committed_datetime = Column(DateTime)
-    updated_at = Column(DateTime, onupdate=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    committed_datetime = Column(DateTime(timezone=True))
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
 
     student = relationship("Student", back_populates="commitments")
     assignment = relationship("Assignment", back_populates="commitments")
@@ -132,7 +134,7 @@ class StudentPoints(Base):
     total_points = Column(Integer, default=100)
     current_streak = Column(Integer, default=0)
     longest_streak = Column(Integer, default=0)
-    last_commitment_date = Column(DateTime)
+    last_commitment_date = Column(DateTime(timezone=True))
     
     student = relationship("Student", back_populates="points")
 
@@ -156,8 +158,9 @@ class StudentProgress(Base):
     student_id = Column(Integer, ForeignKey("students.id"))
     content_id = Column(Integer, ForeignKey("learning_content.id"))
     status = Column(String)  # started, completed
-    started_at = Column(DateTime, default=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
+    time_spent = Column(Integer, default=0) # Total minutes spent
+    started_at = Column(DateTime(timezone=True), default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
 
 class Nudge(Base):
     __tablename__ = "nudges"
@@ -179,7 +182,7 @@ class Notification(Base):
     message = Column(Text)
     type = Column(String(50)) # e.g., 'buddy_request', 'system_alert'
     status = Column(String(20), default="unread") # unread, read, accepted, declined
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     recipient = relationship("Student", foreign_keys=[recipient_id])
     sender = relationship("Student", foreign_keys=[sender_id])
@@ -191,8 +194,8 @@ class Prediction(Base):
     student_id = Column(Integer, ForeignKey("students.id"))
     risk_score = Column(Float)
     reason = Column(String(255))
-    predicted_at = Column(DateTime, server_default=func.now())
+    predicted_at = Column(DateTime(timezone=True), server_default=func.now())
     actual_outcome = Column(Integer, nullable=True)
-    feedback_received_at = Column(DateTime, nullable=True)
+    feedback_received_at = Column(DateTime(timezone=True), nullable=True)
 
     student = relationship("Student", back_populates="predictions")

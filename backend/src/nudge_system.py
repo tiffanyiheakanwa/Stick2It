@@ -21,18 +21,8 @@ import random
 from backend.app.database import get_db_session
 from backend.app.models import StudentBehavior, Student
 from .predict import ProcrastinationPredictor # 
+from .email_utils import send_sendgrid_email
 import os
-from dotenv import load_dotenv
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
-
-# Use find_dotenv or just check if it exists
-env_path = 'sendgrid.env'
-if os.path.exists(env_path):
-    load_dotenv(os.path.join(os.getcwd(), env_path))
-else:
-    print(f"Warning: {env_path} not found. Ensure environment variables are set manually.")
-api_key = os.getenv('SENDGRID_API_KEY')
 
 import firebase_admin
 from firebase_admin import messaging, credentials, initialize_app
@@ -92,6 +82,10 @@ class SmartNudgeSystem:
         'time_pressure': [
             " The clock is ticking on '{task}'. You have {points_at_risk} points on the line.",
             " Final hour! Is '{task}' worth losing your {streak}-day streak over?"
+        ],
+        'sunk_cost': [
+            " You've already put {hours_spent} hours into this; don't let that effort go to waste by missing the deadline for '{task}'!",
+            " Don't waste the {hours_spent} hours you've invested. Push through the final stretch of '{task}'!"
         ]
 }
     
@@ -190,6 +184,7 @@ class SmartNudgeSystem:
                 # 3. Calculate time-based variables FIRST
                 target_date = commit.assignment.due_date if commit.assignment else commit.committed_datetime
                 hours_left = int((target_date - now).total_seconds() / 3600)
+                completion_percent = 0
                 if commit.assignment_id:
                     # Count total students committed to this assignment
                     total_cohort = session.query(Commitment).filter(
@@ -204,8 +199,16 @@ class SmartNudgeSystem:
                     
                     # Calculate percentage (default to 0 if no one else has committed)
                     completion_percent = int((completed_cohort / total_cohort) * 100) if total_cohort > 0 else 0
-                else:
-                    completion_percent = 0
+                
+                # Fetch time_spent from StudentProgress if applicable
+                time_spent_mins = 0
+                if commit.content_id:
+                    progress = session.query(StudentProgress).filter_by(
+                        student_id=student_id, content_id=commit.content_id
+                    ).first()
+                    if progress and progress.time_spent:
+                        time_spent_mins = progress.time_spent
+                hours_spent = round(time_spent_mins / 60.0, 1)
             
                 self._log_prediction(session, student_id, commit.assignment_id, p_fail)
 
@@ -214,6 +217,7 @@ class SmartNudgeSystem:
                     'streak': points.current_streak,
                     'task': commit.custom_title or (commit.assignment.title if commit.assignment else "your active task"),                    
                     'hours': hours_left,
+                    'hours_spent': hours_spent,
                     'points_at_risk': commit.stake_value,
                     'buddy': commit.buddy_name,
                     'penalty': commit.penalty_message,
@@ -222,25 +226,42 @@ class SmartNudgeSystem:
                 }
 
 
-                # 6. Trigger logic: Threshold of 0.75
-                if p_fail >= 0.75:
-                    pref = getattr(student, 'nudge_preference', 'auto')
-                    
-                    if pref and pref != 'auto' and pref in self.nudge_templates:
-                        category = pref
-                    else:
-                        if p_fail >= 0.85:
-                            category = 'social_accountability'
+                # 6. Trigger logic: A/B Testing
+                should_nudge = False
+                category = 'loss_aversion'
+                
+                if student.experimental_group:
+                    # EXPERIMENTAL / DYNAMIC: Use AI-calculated risk
+                    if p_fail >= 0.75:
+                        should_nudge = True
+                        pref = getattr(student, 'nudge_preference', 'auto')
+                        if pref and pref != 'auto' and pref in self.nudge_templates:
+                            category = pref
                         else:
-                            category = 'loss_aversion'
+                            # Advanced logic: Sunk Cost or Social Proof Overrides
+                            if hours_spent > 1.0:
+                                category = 'sunk_cost'
+                            elif completion_percent >= 25:
+                                category = 'social_proof'
+                            elif p_fail >= 0.85:
+                                category = 'social_accountability'
+                            else:
+                                category = 'loss_aversion'
+                else:
+                    # CONTROL / STATIC: Simple scheduled logic
+                    # E.g., Exactly 1 day before, or inactive for >= 3 days
+                    if (hours_left > 0 and hours_left <= 24) or days_inactive >= 3:
+                        should_nudge = True
+                        category = 'time_pressure'
 
+                if should_nudge:
                     if self._can_send(student_id, category):
                         template = random.choice(self.nudge_templates[category])
                         message = template.format(**nudge_context)
                         
                         nudges_to_send.append({
-                            'type': f'AI_{category.upper()}',
-                            'p_fail': p_fail,
+                            'type': f'{"AI" if student.experimental_group else "STATIC"}_{category.upper()}',
+                            'p_fail': p_fail if student.experimental_group else 0.8, # fallback priority
                             'message': message,
                             'assignment_id': commit.assignment_id,
                             'timing': 'immediate'
@@ -558,36 +579,8 @@ class SmartNudgeSystem:
                         logger.info(f" Streak protection nudge sent to student {points.student_id}")
 
     def _send_sendgrid_email(self, user_email, message, user_name="Student"):
-        """
-        Core delivery logic for SendGrid.
-        """
-        # 1. Prepare the Mail object
-        sg_mail = Mail(
-            from_email=os.environ.get('SENDER_EMAIL', 'test@example.com'),
-            to_emails=user_email,
-            subject=f"Action Required: Personalized Insight for {user_name}",
-            plain_text_content=message
-        )
-       
-        try:
-            # 2. Initialize the client with your API Key
-            api_key = os.environ.get('SENDGRID_API_KEY')
-            if not api_key:
-                logger.warning(f"Simulating email to {user_email}: {message}")
-                return True
-                
-            sg = SendGridAPIClient(api_key)
-            response = sg.send(sg_mail)
-            
-            logger.info(f"SendGrid API Response: {response.status_code}")
-            print(f"Nudge sent to {user_email}. Status Code: {response.status_code}")
-            
-            # SendGrid returns 200, 201, or 202 on success
-            return response.status_code in [200, 201, 202]
-
-        except Exception as e:
-            logger.error(f"SendGrid Network Error: {e}")
-            return False
+        subject = f"Action Required: Personalized Insight for {user_name}"
+        return send_sendgrid_email(user_email, subject, message, user_name)
 
     def _send_firebase_push(self, registration_token, title, body):
         message = messaging.Message(

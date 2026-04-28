@@ -25,7 +25,7 @@ return (
         <CardTitle className="text-xs font-bold uppercase tracking-wider text-gray-500">
           Current Stakes at Risk
         </CardTitle>
-        {!loading && (
+        {!loading && totalAtRiskPoints > 0 && (
             <span className="flex h-2 w-2">
               <span className="absolute inline-flex h-3 w-3 -mt-0.5 -ml-0.5 animate-ping rounded-full bg-red-400 opacity-75"></span>
               <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500"></span>

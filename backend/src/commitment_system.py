@@ -5,6 +5,7 @@ from backend.app.database import get_db_session
 from backend.app.models import Assignment, Commitment, StudentPoints, Student, Nudge
 from .logger import logger
 from backend.app.config import serializer, SECURITY_SALT
+from .email_utils import send_sendgrid_email
 
 class CommitmentSystem:
     def __init__(self):
@@ -83,8 +84,9 @@ class CommitmentSystem:
                     session.commit()
                     return {"success": True, "status": "expired"}
                 else:
-                    # Optional 1-hour grace period if explicitly requested for UX
-                    if allow_grace_period and now <= (deadline + timedelta(hours=1)):
+                    # Dynamic grace period based on student lenience profile
+                    lenience_hours = getattr(commitment.student, 'grace_period_lenience', 1.0)
+                    if now <= (deadline + timedelta(hours=lenience_hours)):
                         return {"success": True, "status": "pending", "message": "In grace period"}
                     else:
                         return self._process_failure(session, commitment)
@@ -181,7 +183,8 @@ class CommitmentSystem:
                         "stake_type": c.stake_type,
                         "buddy_name": c.buddy_name,
                         "penalty_message": c.penalty_message,
-                        "committed_datetime": c.committed_datetime.isoformat(),
+                        "committed_datetime": c.committed_datetime.isoformat() if c.committed_datetime else None,
+                        "completed_at": c.completed_at.isoformat() if c.completed_at else (c.updated_at.isoformat() if c.updated_at else None),
                         "title": c.assignment.title if c.assignment else (c.custom_title or "Task"),
                         "source_platform": c.assignment.source_platform if c.assignment else "local"
                     } for c in valid_commitments
@@ -253,5 +256,5 @@ class CommitmentSystem:
             return f"http://localhost:8000/verify/{token}"
 
     def _send_email(self, to_email, subject, body):
-        """Mock email sender for MVP - prints to console."""
-        print(f"\n📧 EMAIL TO: {to_email}\nSubject: {subject}\nBody: {body}\n" + "="*30)
+        """Dispatches the buddy email via SendGrid."""
+        send_sendgrid_email(to_email, subject, body, "Accountability Partner")
