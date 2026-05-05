@@ -13,9 +13,10 @@ const priorityColors = {
 interface TaskChecklistProps {
   reminders: Reminder[];
   toggleReminder: (id: number) => void;
+  submitReminder: (id: number) => Promise<void>;
 }
 
-export function TaskChecklist({ reminders, toggleReminder }: TaskChecklistProps) {
+export function TaskChecklist({ reminders, toggleReminder, submitReminder }: TaskChecklistProps) {
   const today = new Date().toISOString().split('T')[0];
   const todayReminders = reminders.filter(r => r.date === today);
   
@@ -34,12 +35,17 @@ export function TaskChecklist({ reminders, toggleReminder }: TaskChecklistProps)
               className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors"
             >
               <Checkbox
-                checked={reminder.completed}
-                onCheckedChange={() => toggleReminder(reminder.id)}
+                checked={reminder.completed || reminder.status === 'awaiting_verification'}
+                onCheckedChange={() => {
+                  if (reminder.status !== 'awaiting_verification') {
+                    submitReminder(reminder.id);
+                  }
+                }}
+                disabled={reminder.status === 'awaiting_verification' || reminder.completed}
                 className="mt-1"
               />
               <div className="flex-1 min-w-0">
-                <div className={`flex items-center gap-2 mb-1 ${reminder.completed ? "line-through text-gray-400" : ""}`}>
+                <div className={`flex items-center gap-2 mb-1 ${(reminder.completed || reminder.status === 'awaiting_verification') ? "line-through text-gray-400" : ""}`}>
                   <span className="text-gray-900">{reminder.title}</span>
                   {reminder.aiSuggested && (
                     <Sparkles className="w-3.5 h-3.5 text-purple-500" />
@@ -53,9 +59,16 @@ export function TaskChecklist({ reminders, toggleReminder }: TaskChecklistProps)
                   )}
                 </div>
               </div>
-              <Badge className={priorityColors[reminder.priority as keyof typeof priorityColors]}>
-                {reminder.priority}
-              </Badge>
+              <div className="flex flex-col gap-1 items-end">
+                <Badge className={priorityColors[reminder.priority as keyof typeof priorityColors]}>
+                  {reminder.priority}
+                </Badge>
+                {reminder.status === 'awaiting_verification' && (
+                  <Badge className="bg-blue-100 text-blue-700 border-blue-200 shadow-none hover:bg-blue-100">
+                    Awaiting Verification
+                  </Badge>
+                )}
+              </div>
             </div>
           ))
         )}

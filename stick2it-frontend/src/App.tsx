@@ -15,6 +15,8 @@ import { SettingsView } from "./view/dashboard/SettingsView";
 import { useTasks } from './context/TaskContext.tsx';
 import { Toaster } from "react-hot-toast";
 
+import { VerifyView } from "./view/dashboard/VerifyView";
+
 export interface Reminder {
   id: number;
   title: string;
@@ -42,6 +44,7 @@ export default function App() {
   } = useTasks();
 
   const [isOAuthCallback] = useState(() => window.location.search.includes('token='));
+  const [isVerifyRoute] = useState(() => window.location.pathname.startsWith('/verify/'));
 
   const [activeSection, setActiveSection] = useState(() => {
     return sessionStorage.getItem('lastSection') || "dashboard";
@@ -55,6 +58,10 @@ export default function App() {
 
   if (isOAuthCallback) {
     return <OAuthCallbackView />;
+  }
+
+  if (isVerifyRoute) {
+    return <VerifyView />;
   }
 
   const renderContent = () => {

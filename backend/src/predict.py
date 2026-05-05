@@ -280,7 +280,7 @@ class ProcrastinationPredictor:
                 return
 
             total = len(all_commits)
-            kept = len([c for c in all_commits if c.status in ['kept', 'completed']])
+            kept = len([c for c in all_commits if c.status in ['kept', 'completed', 'awaiting_verification']])
             in_progress = len([c for c in all_commits if c.status == 'in_progress'])
             broken = len([c for c in all_commits if c.status == 'broken'])
             
@@ -307,21 +307,20 @@ class ProcrastinationPredictor:
 
             behavior.last_minute_ratio = last_minute_ratio
 
-            in_progress_count = session.query(Commitment).filter_by(
-                student_id=student_id, 
-                status='in_progress'
+            in_progress_count = session.query(Commitment).filter(
+                Commitment.student_id == student_id,
+                Commitment.status.in_(['in_progress', 'awaiting_verification'])
             ).count()
 
-            # If they just started a task, we SLASH the risk score manually 
+            # If they just started a task or finished one, we SLASH the risk score manually 
             # to override the Random Forest's "Deadline Pressure" bias.
             if in_progress_count > 0:
                 behavior.engagement_intensity = 1.0  
                 # We give them a 'perfect' completion rate for the next prediction
                 behavior.completion_rate = 1.0 
-                logger.info(f"User {student_id} is active. Forcing risk reduction.")
+                logger.info(f"User {student_id} is active/verifying. Forcing risk reduction.")
 
-
-            if in_progress > 0:
+            if in_progress > 0 or in_progress_count > 0:
                 behavior.engagement_intensity = 1.0  # Max engagement
                 behavior.completion_rate = min(1.0, behavior.completion_rate + 0.3) # Artificial temporary boost
             else:

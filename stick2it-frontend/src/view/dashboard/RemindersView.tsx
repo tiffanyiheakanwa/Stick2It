@@ -15,7 +15,7 @@ import { RemindersSkeleton } from "../../components/dashboard/RemindersSkeleton"
 
 
 export function RemindersView(){
-  const { commitments, loading, token, refreshData, deleteReminder } = useTasks();
+  const { commitments, loading, token, refreshData, deleteReminder, submitReminder } = useTasks();
   const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
   const [modalOpen, setModalOpen] = useState(false);
   const [activeCommitId, setActiveCommitId] = useState<number | null>(null);
@@ -114,9 +114,12 @@ export function RemindersView(){
                   <Badge className={
                     commitment.status === 'kept' ? "bg-green-100 text-green-700" : 
                     commitment.status === 'requires_stake' ? "bg-orange-100 text-orange-700 border-orange-200" : 
+                    commitment.status === 'awaiting_verification' ? "bg-blue-100 text-blue-700 border-blue-200 shadow-none hover:bg-blue-100" :
                     "bg-blue-100 text-blue-700"
                   }>
-                    {commitment.status === 'requires_stake' ? 'NEEDS ACTIVATION' : commitment.status.toUpperCase()}
+                    {commitment.status === 'requires_stake' ? 'NEEDS ACTIVATION' : 
+                     commitment.status === 'awaiting_verification' ? 'AWAITING VERIFICATION' : 
+                     commitment.status.toUpperCase()}
                   </Badge>
                   {commitment.status === 'requires_stake' && (
                     <Button 
@@ -125,6 +128,15 @@ export function RemindersView(){
                       onClick={() => handleActivate(commitment.id, commitment.title, commitment.committed_datetime)}
                     >
                       Activate (Set Stake)
+                    </Button>
+                  )}
+                  {(commitment.status === 'pending' || commitment.status === 'in_progress') && (
+                    <Button 
+                      size="sm" 
+                      className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm mt-2 font-bold"
+                      onClick={() => submitReminder(commitment.id)}
+                    >
+                      Mark Done
                     </Button>
                   )}
                   {commitment.status === 'requires_stake' && (

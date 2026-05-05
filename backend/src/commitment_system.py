@@ -68,7 +68,7 @@ class CommitmentSystem:
         with get_db_session() as session:
             commitment = session.query(Commitment).filter(Commitment.id == commitment_id).first()
 
-            if not commitment or commitment.status not in ["pending", "requires_stake", "in_progress"]:
+            if not commitment or commitment.status not in ["pending", "requires_stake", "in_progress", "awaiting_verification"]:
                 return {"success": False, "error": "Invalid or inactive commitment"}
 
             now = actual_action_time or datetime.utcnow()
@@ -232,10 +232,18 @@ class CommitmentSystem:
 
     def _send_initial_buddy_alert(self, commitment):
         """Initial notification to buddy that a contract has been locked."""
-        verification_url = f"http://stick2it.app/verify/{commitment.verification_token}"
+        verification_url = f"http://localhost:5173/verify/{commitment.verification_token}"
         subject = f"Action Required: Accountability Partner for {commitment.buddy_name}"
-        task_title = commitment.assignment.title if commitment.assignment else "a task"
+        task_title = commitment.assignment.title if commitment.assignment else (commitment.custom_title or "a task")
         body = f"Your friend committed to: {task_title}\nStake: {commitment.stake_type}\nPenalty: {commitment.penalty_message}\nVerify here: {verification_url}"
+        self._send_email(commitment.buddy_email, subject, body)
+
+    def _send_verification_request_alert(self, commitment):
+        """Notification to buddy that the user claims they are done and needs verification."""
+        verification_url = f"http://localhost:5173/verify/{commitment.verification_token}"
+        subject = f"Verification Required: {commitment.student.name} claims they finished their task"
+        task_title = commitment.assignment.title if commitment.assignment else (commitment.custom_title or "a task")
+        body = f"Your friend {commitment.student.name} claims they completed: {task_title}\nStake: {commitment.stake_type}\nVerify if they actually did it here: {verification_url}"
         self._send_email(commitment.buddy_email, subject, body)
 
     def _notify_partner(self, commitment, result):

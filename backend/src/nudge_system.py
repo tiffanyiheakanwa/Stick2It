@@ -583,12 +583,17 @@ class SmartNudgeSystem:
         return send_sendgrid_email(user_email, subject, message, user_name)
 
     def _send_firebase_push(self, registration_token, title, body):
-        message = messaging.Message(
-            notification=messaging.Notification(title=title, body=body),
-            token=registration_token,
-        )
-        response = messaging.send(message)
-        print(f"Successfully sent Firebase message: {response}")
+        try:
+            message = messaging.Message(
+                notification=messaging.Notification(title=title, body=body),
+                token=registration_token,
+            )
+            response = messaging.send(message)
+            print(f"Successfully sent Firebase message: {response}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send Firebase message: {e}")
+            return False
 
     def _send_personalized_alert(self, session, student_id, nudge_type, message, assignment_id=None, commitment_id=None):
         """
@@ -617,7 +622,8 @@ class SmartNudgeSystem:
         success = False
 
         # 2. Routing Logic
-        if "URGENT" in nudge_type.upper() or "DEADLINE" in nudge_type.upper():
+        urgent_keywords = ["URGENT", "DEADLINE", "TIME_PRESSURE", "LOSS_AVERSION", "CALL_TO_ACTION"]
+        if any(keyword in nudge_type.upper() for keyword in urgent_keywords):
             # Use Firebase for immediate attention
             if getattr(student, "fcm_token", None):
                 success = self._send_firebase_push(student.fcm_token, "Stick2It Alert", message)

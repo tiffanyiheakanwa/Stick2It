@@ -534,6 +534,23 @@ async def process_broken(token: str, reason: str = Form(None)):
             return "<h1>Penalty Executed</h1><p>The stake has been deducted. Accountability works!</p>"
     return "<h1>Error</h1><p>Commitment not found.</p>"
 
+@app.get("/api/v1/verify/{token}")
+async def get_verify_commitment_info(token: str):
+    with get_db_session() as session:
+        commitment = session.query(Commitment).filter(Commitment.verification_token == token).first()
+        if not commitment:
+            raise HTTPException(status_code=404, detail="Invalid token")
+            
+        return {
+            "id": commitment.id,
+            "title": commitment.custom_title or (commitment.assignment.title if commitment.assignment else "Task"),
+            "student_name": commitment.student.name,
+            "stake_type": commitment.stake_type,
+            "stake_value": commitment.stake_value,
+            "penalty_message": commitment.penalty_message,
+            "status": commitment.status
+        }
+
 @app.post("/api/v1/verify/{token}/{action}")
 async def fetch_verify_commitment(token: str, action: str):
     with get_db_session() as session:
@@ -666,6 +683,24 @@ async def start_commitment(commit_id: int, current_user_id: int = Depends(get_cu
         predictor.refresh_behavior_stats(commitment.student_id)
         
         return {"success": True, "message": "Task started"}
+
+@app.patch("/api/v1/commitments/{commit_id}/submit")
+async def submit_commitment_for_verification(commit_id: int, current_user_id: int = Depends(get_current_user)):
+    with get_db_session() as session:
+        commitment = session.get(Commitment, commit_id)
+        if not commitment or commitment.student_id != current_user_id:
+            raise HTTPException(status_code=404, detail="Commitment not found")
+        
+        if commitment.status not in ['pending', 'in_progress']:
+            raise HTTPException(status_code=400, detail="Only pending or active tasks can be submitted")
+            
+        commitment.status = "awaiting_verification"
+        session.commit()
+        
+        commitment_manager._send_verification_request_alert(commitment)
+        predictor.refresh_behavior_stats(current_user_id)
+        
+        return {"success": True, "message": "Task submitted for verification"}
 
 @app.delete("/api/v1/commitments/{commit_id}")
 async def delete_commitment(commit_id: int, current_user_id: int = Depends(get_current_user)):

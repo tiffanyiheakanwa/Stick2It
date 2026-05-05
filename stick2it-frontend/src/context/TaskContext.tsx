@@ -28,6 +28,7 @@ interface TaskContextType {
   setGlobalTaskInput: (value: string) => void;
   addReminder: (title: string, time: string, priority?:string, isSubtask?: boolean)=> Promise<void>;
   toggleReminder: (id:number) => void;
+  submitReminder: (id: number) => Promise<void>;
   deleteReminder: (id: number) => Promise<void>;
   handleRespond: (id: number, action: 'accept' | 'refuse') => Promise<void>;
 }
@@ -266,6 +267,25 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const submitReminder = async (id: number) => {
+    if (!token) return;
+    try {
+      const response = await fetch(`http://localhost:8000/api/v1/commitments/${id}/submit`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.ok) {
+        toast.success("Task submitted for buddy verification!");
+        await refreshData();
+      } else {
+        const data = await response.json();
+        toast.error(data.detail || "Failed to submit task");
+      }
+    } catch (err) {
+      console.error("Error submitting reminder", err);
+    }
+  };
+
   const addReminder = async (title: string, time: string, priority: string = "Medium", isSubtask: boolean = false) => {
     if (!title.trim()) return;
     
@@ -342,11 +362,11 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <TaskContext.Provider value={{ studentId, token, isAuthenticated: !!token, 
       currentStudent, commitments, nudges, loading, login, logout, refreshData, supervisedTasks, streak, points, stressScore, notifications, handleVerify, handleRespond, startTask, toggleReminder, addReminder, deleteReminder, 
-      globalTaskInput, 
       setGlobalTaskInput, 
       isSaving,
       displayedBadgeCount,
-      markNotificationsViewed }}>
+      markNotificationsViewed,
+      submitReminder }}>
       {children}
     </TaskContext.Provider>
   );
