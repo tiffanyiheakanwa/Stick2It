@@ -12,7 +12,7 @@ if not os.path.exists("logs"):
 # )
 
 # Get a logger instance
-logger = logging.getLogger("Stick2It")
+logger = logging.getLogger("RemindAI")
 logger.setLevel(logging.INFO)
 
 # File handler
@@ -35,7 +35,7 @@ logger.addHandler(console_handler)
 # --------------------------
 # SYNCHRONIZATION LOGGER
 # --------------------------
-sync_logger = logging.getLogger("Stick2It.Sync")
+sync_logger = logging.getLogger("RemindAI.Sync")
 sync_logger.setLevel(logging.INFO)
 
 sync_handler = logging.FileHandler("logs/sync_errors.log")

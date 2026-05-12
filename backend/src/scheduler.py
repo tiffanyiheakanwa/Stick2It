@@ -1,5 +1,5 @@
 """
-Stick2It – Background Scheduler
+RemindAI – Background Scheduler
 Runs automated checks & nudges
 """
 

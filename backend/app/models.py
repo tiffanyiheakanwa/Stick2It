@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
+import enum
 from .database import Base 
 
 partnerships = Table(
@@ -11,6 +12,11 @@ partnerships = Table(
     Column('student_id', Integer, ForeignKey('students.id'), primary_key=True),
     Column('partner_id', Integer, ForeignKey('students.id'), primary_key=True)
 )
+
+class CommitmentType(enum.Enum):
+    SOCIAL = "Social"
+    POINT_ONLY = "Point-only"
+    LOCK_IN = "Lock-in"
 
 class Student(Base):
     __tablename__ = "students"
@@ -171,6 +177,8 @@ class Nudge(Base):
     message = Column(Text)
     nudge_type = Column(String(50)) 
     sent_at = Column(DateTime(timezone=True), server_default=func.now())
+    reaction_time = Column(Float, nullable=True) # Hours/minutes until they interacted
+    is_successful_conversion = Column(Boolean, default=False)
 
     student = relationship("Student", back_populates="nudges")
 

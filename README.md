@@ -1,1 +1,1 @@
-# Stick2It
+# RemindAI

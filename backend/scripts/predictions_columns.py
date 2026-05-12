@@ -3,7 +3,7 @@ import os
 
 def migrate_predictions():
     # 1. Smarter Path Logic
-    # This finds the 'Stick2It' root folder by looking for the 'backend' directory
+    # This finds the 'RemindAI' root folder by looking for the 'backend' directory
     current_path = os.getcwd()
     if "scripts" in current_path:
         db_path = os.path.join("..", "procrastination.db")

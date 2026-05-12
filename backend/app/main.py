@@ -19,7 +19,7 @@ from backend.src.scheduler import start_scheduler
 from backend.src.feedback_loop import MLFeedbackLoop
 
 from backend.app.database import get_db_session, SessionLocal
-from backend.app.models import Student, Commitment, Notification, Prediction
+from backend.app.models import Student, Commitment, Notification, Prediction, StudentPoints
 from backend.app.config import serializer, SECURITY_SALT
 from .tasks import process_student_nudge_task
 from backend.src.ingestion import AssignmentIngestor
@@ -461,7 +461,7 @@ async def buddy_verification_page(token: str, request: Request):
         return f'''
         <html>
             <body style="font-family: sans-serif; text-align: center; padding: 50px;">
-                <h1>Stick2It Accountability</h1>
+                <h1>RemindAI Accountability</h1>
                 <p>Did your friend complete: <strong>{commitment.assignment.title if commitment.assignment else (commitment.custom_title or "their task")}</strong>?</p>
                 <div style="margin-top: 30px; display: flex; justify-content: center; gap: 20px;">
                     <a href="/verify/{token}/kept" style="padding: 15px 25px; background: #28a745; color: white; text-decoration: none; border-radius: 5px; height: 20px; display: inline-block;">✅ Yes, they kept it!</a>
@@ -620,7 +620,11 @@ async def create_commitment(data: dict = Body(...), current_user_id: int = Depen
         
         c_id = commitment.get("id") if isinstance(commitment, dict) else commitment.id
         task_text = data.get('title') or "New Task"
-        prediction_result = predictor.predict_from_task(task_text, student_id=current_user_id)
+        prediction_result = predictor.predict_from_task(
+            task_text, 
+            student_id=current_user_id,
+            subjective_difficulty=data.get("subjective_difficulty", "Medium")
+        )
 
         with get_db_session() as session:
             new_pred = Prediction(
@@ -655,6 +659,7 @@ async def activate_commitment(commit_id: int, data: dict = Body(...), current_us
         commitment.buddy_name = buddy_name
         commitment.buddy_email = data.get("buddy_email")
         commitment.stake_value = stake_value
+        commitment.stake_type = data.get("stake_type", commitment.stake_type)
         commitment.status = 'pending'
         
         custom_title = commitment.assignment.title if commitment.assignment else (commitment.custom_title or "Task")
@@ -694,13 +699,34 @@ async def submit_commitment_for_verification(commit_id: int, current_user_id: in
         if commitment.status not in ['pending', 'in_progress']:
             raise HTTPException(status_code=400, detail="Only pending or active tasks can be submitted")
             
-        commitment.status = "awaiting_verification"
-        session.commit()
-        
-        commitment_manager._send_verification_request_alert(commitment)
-        predictor.refresh_behavior_stats(current_user_id)
-        
-        return {"success": True, "message": "Task submitted for verification"}
+        if commitment.stake_type == "Social":
+            commitment.status = "awaiting_verification"
+            session.commit()
+            
+            commitment_manager._send_verification_request_alert(commitment)
+            predictor.refresh_behavior_stats(current_user_id)
+            
+            return {"success": True, "message": "Task submitted for verification"}
+        else:
+            commitment.status = "completed"
+            if commitment.assignment:
+                commitment.assignment.status = "Completed"
+            commitment.completed_at = datetime.utcnow()
+            
+            points = session.query(StudentPoints).filter(
+                StudentPoints.student_id == current_user_id
+            ).first()
+
+            if points:
+                points.total_points += commitment.stake_value
+                points.current_streak += 1
+                points.longest_streak = max(points.longest_streak, points.current_streak)
+                points.last_commitment_date = datetime.utcnow()
+                
+            session.commit()
+            predictor.refresh_behavior_stats(current_user_id)
+            
+            return {"success": True, "message": "Task completed successfully"}
 
 @app.delete("/api/v1/commitments/{commit_id}")
 async def delete_commitment(commit_id: int, current_user_id: int = Depends(get_current_user)):
@@ -708,6 +734,9 @@ async def delete_commitment(commit_id: int, current_user_id: int = Depends(get_c
         commitment = session.get(Commitment, commit_id)
         if not commitment or commitment.student_id != current_user_id:
             raise HTTPException(status_code=404, detail="Commitment not found")
+        
+        if commitment.stake_type == "Lock-in":
+            raise HTTPException(status_code=403, detail="Lock-in commitments cannot be deleted.")
         
         commitment.status = "expired"
         session.commit()
@@ -998,7 +1027,7 @@ async def test_push(current_user_id: int = Depends(get_current_user)):
         # Trigger the push via our nudge system logic
         success = nudge_service._send_firebase_push(
             student.fcm_token, 
-            "AI Coach: Stick2It!", 
+            "AI Coach: RemindAI!", 
             "Testing the push notification system. Did you see this?"
         )
         return {"push_sent": success}

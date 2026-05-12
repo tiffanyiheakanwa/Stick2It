@@ -7,7 +7,7 @@
           "command": "python -m celery -A backend.app.tasks worker --loglevel=info -P solo",
           "isBackground": true,
           "presentation": {
-              "group": "stick2it-group",
+              "group": "RemindAI-group",
               "panel": "dedicated"
           }
       },
@@ -17,17 +17,17 @@
           "command": "python -m uvicorn backend.app.main:app --reload --port 8000",
           "isBackground": true,
           "presentation": {
-              "group": "stick2it-group",
+              "group": "RemindAI-group",
               "panel": "dedicated"
           }
       },
       {
           "label": "3. React Frontend",
           "type": "shell",
-          "command": "cd stick2it-frontend; npm run dev",
+          "command": "cd RemindAI-frontend; npm run dev",
           "isBackground": true,
           "presentation": {
-              "group": "stick2it-group",
+              "group": "RemindAI-group",
               "panel": "dedicated"
           }
       },

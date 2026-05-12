@@ -2,7 +2,7 @@
 
 # setup_dev.ps1 (Optimized for Cursor)
 
-Write-Host "Starting Stick2It in Cursor Integrated Terminals..."
+Write-Host "Starting RemindAI in Cursor Integrated Terminals..."
 
 # 1. Check for Redis/Memurai
 $redisCheck = Get-Service -Name "Memurai" -ErrorAction SilentlyContinue
@@ -21,14 +21,14 @@ Write-Host "Opening FastAPI Backend tab..."
 cursor --terminal --command "python -m uvicorn backend.app.main:app --reload"
 
 # 4. Start React Frontend (In-IDE Tab)
-if (Test-Path "stick2it-frontend") {
+if (Test-Path "RemindAI-frontend") {
     Write-Host "Opening React Frontend tab..."
-    cursor --terminal --command "cd stick2it-frontend; npm run dev"
+    cursor --terminal --command "cd RemindAI-frontend; npm run dev"
 }
 
 Write-Host "Check the terminal dropdown in Cursor for your new tabs!"
 
-# Write-Host "Starting Stick2It in VS Code Integrated Terminals..."
+# Write-Host "Starting RemindAI in VS Code Integrated Terminals..."
 
 # # 1. Check for Redis/Memurai
 # $redisCheck = Get-Service -Name "Memurai" -ErrorAction SilentlyContinue
@@ -47,9 +47,9 @@ Write-Host "Check the terminal dropdown in Cursor for your new tabs!"
 # code --terminal --command "python -m uvicorn backend.app.main:app --reload"
 
 # # 4. Start React Frontend
-# if (Test-Path "stick2it-frontend") {
+# if (Test-Path "RemindAI-frontend") {
 #     Write-Host "Dispatching React Frontend..."
-#     code --terminal --command "cd stick2it-frontend; npm run dev"
+#     code --terminal --command "cd RemindAI-frontend; npm run dev"
 # }
 
 # Write-Host "Success! Check your Terminal panel for the new tabs."

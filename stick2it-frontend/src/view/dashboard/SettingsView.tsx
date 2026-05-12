@@ -165,7 +165,7 @@ export function SettingsView() {
                     </div>
                     <div>
                       <span className="font-semibold text-sm text-gray-900">Moodle</span>
-                      <p className="mt-1 text-xs text-gray-500">Coming soon! Bring your university tasks into Stick2It.</p>
+                      <p className="mt-1 text-xs text-gray-500">Coming soon! Bring your university tasks into RemindAI.</p>
                     </div>
                   </div>
                   <Button variant="outline" disabled className="flex-shrink-0">

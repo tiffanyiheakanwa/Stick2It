@@ -118,7 +118,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const socket = new WebSocket(`ws://localhost:8000/ws/${studentId}`);
 
     socket.onopen = () => {
-      console.log("Connected to Stick2It Real-time Sync (Global)");
+      console.log("Connected to RemindAI Real-time Sync (Global)");
     };
 
     socket.onmessage = (event) => {

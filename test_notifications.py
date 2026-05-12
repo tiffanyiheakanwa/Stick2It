@@ -24,7 +24,7 @@ def test_sendgrid():
         # Sending to a placeholder to see if the SendGrid client accepts it
         success = send_sendgrid_email(
             to_email="test@example.com", 
-            subject="Stick2It Test Email", 
+            subject="RemindAI Test Email", 
             body="This is a test to verify SendGrid is configured correctly."
         )
         print(f"SendGrid result: {success}")
@@ -52,7 +52,7 @@ def test_firebase():
         return False
 
 if __name__ == "__main__":
-    print("--- Stick2It Notification Test ---")
+    print("--- RemindAI Notification Test ---")
     
     sg_ok = test_sendgrid()
     fb_ok = test_firebase()

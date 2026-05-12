@@ -21,7 +21,7 @@ def calculate_research_metrics():
         print("Insufficient data to calculate metrics.")
         return
 
-    print("--- Stick2It Phase 4: Research Metrics ---")
+    print("--- RemindAI Phase 4: Research Metrics ---")
 
     # --- METRIC 1: Nudge Compliance Rate ---
     # Definition: Interaction (action) occurring within 4 hours after a nudge

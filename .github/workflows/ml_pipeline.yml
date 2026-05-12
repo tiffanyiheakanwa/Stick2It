@@ -37,7 +37,7 @@ jobs:
       - name: Run Retraining Script
         env:
           # Use secrets for sensitive DB or API keys if needed
-          STICK2IT_SECRET_KEY: ${{ secrets.STICK2IT_SECRET_KEY }}
+          RemindAI_SECRET_KEY: ${{ secrets.RemindAI_SECRET_KEY }}
         run: |
           python backend/src/train_model.py
 

@@ -30,7 +30,9 @@ export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, init
     title: initialTitle,
     date: "",
     buddyId: "",
-    stakeValue: "10"
+    stakeValue: "10",
+    stakeType: "Social",
+    subjectiveDifficulty: "Medium"
   });
 
   useEffect(() => {
@@ -68,8 +70,12 @@ export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, init
     e.preventDefault();
     const selectedPartner = partners.find(p => p.id.toString() === formData.buddyId);
 
-    if (!formData.title || !formData.date || !selectedPartner) {
+    if (!formData.title || !formData.date) {
       return;
+    }
+    
+    if (formData.stakeType === "Social" && !selectedPartner) {
+        return;
     }
 
     setLoading(true);
@@ -82,15 +88,19 @@ export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, init
       const method = isActivation ? "PATCH" : "POST";
 
       const payload = isActivation ? {
-          buddy_name: selectedPartner.name,
-          buddy_email: selectedPartner.email,
-          stake_value: parseInt(formData.stakeValue)
+          buddy_name: selectedPartner?.name || "",
+          buddy_email: selectedPartner?.email || "",
+          stake_value: parseInt(formData.stakeValue),
+          stake_type: formData.stakeType,
+          subjective_difficulty: formData.subjectiveDifficulty
       } : {
           title: formData.title,
           committed_datetime: new Date(formData.date).toISOString(),
-          buddy_name: selectedPartner.name,
-          buddy_email: selectedPartner.email,
+          buddy_name: selectedPartner?.name || "",
+          buddy_email: selectedPartner?.email || "",
           stake_value: parseInt(formData.stakeValue),
+          stake_type: formData.stakeType,
+          subjective_difficulty: formData.subjectiveDifficulty,
           content_id: null 
       };
 
@@ -155,37 +165,71 @@ export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, init
           </div>
 
           <div className="grid grid-cols-1 gap-4">
-            {/* 2. Buddy Selection Dropdown */}
-            <div className="space-y-2">
-              <Label htmlFor="buddy" className="text-gray-600">Select Buddy</Label>
-              <Select 
-                value={formData.buddyId} 
-                onValueChange={(value) => setFormData(prev => ({ ...prev, buddyId: value }))}
-              >
-                <SelectTrigger className="rounded-lg h-11">
-                  <SelectValue placeholder={partners.length > 0 ? "Choose a buddy" : "Add buddies first"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {partners.map((partner) => (
-                    <SelectItem key={partner.id} value={partner.id.toString()}>
-                      {partner.name} ({partner.email})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* 2. Buddy Selection Dropdown (Only if Social) */}
+            {formData.stakeType === "Social" && (
+              <div className="space-y-2">
+                <Label htmlFor="buddy" className="text-gray-600">Select Buddy</Label>
+                <Select 
+                  value={formData.buddyId} 
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, buddyId: value }))}
+                >
+                  <SelectTrigger className="rounded-lg h-11">
+                    <SelectValue placeholder={partners.length > 0 ? "Choose a buddy" : "Add buddies first"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {partners.map((partner) => (
+                      <SelectItem key={partner.id} value={partner.id.toString()}>
+                        {partner.name} ({partner.email})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {/* Stake Selection */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="stakeType" className="text-gray-600">Commitment Type</Label>
+                <Select value={formData.stakeType} onValueChange={(value) => setFormData(prev => ({ ...prev, stakeType: value }))}>
+                  <SelectTrigger className="rounded-lg h-11">
+                    <SelectValue placeholder="Select Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Social">Social</SelectItem>
+                    <SelectItem value="Point-only">Point-only</SelectItem>
+                    <SelectItem value="Lock-in">Lock-in</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="stake" className="text-gray-600">Stake Value</Label>
+                <Select defaultValue="10" value={formData.stakeValue} onValueChange={(value) => setFormData(prev => ({ ...prev, stakeValue: value }))}>
+                  <SelectTrigger className="rounded-lg h-11">
+                    <SelectValue placeholder="Select Stake" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10 Points</SelectItem>
+                    <SelectItem value="25">25 Points</SelectItem>
+                    <SelectItem value="50">50 Points</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Subjective Difficulty */}
             <div className="space-y-2">
-              <Label htmlFor="stake" className="text-gray-600">Stake Value</Label>
-              <Select defaultValue="10" value={formData.stakeValue} onValueChange={(value) => setFormData(prev => ({ ...prev, stakeValue: value }))}>
-                <SelectTrigger className="rounded-lg">
-                  <SelectValue placeholder="Select Stake" />
+              <Label htmlFor="difficulty" className="text-gray-600">Task Difficulty</Label>
+              <Select value={formData.subjectiveDifficulty} onValueChange={(value) => setFormData(prev => ({ ...prev, subjectiveDifficulty: value }))}>
+                <SelectTrigger className="rounded-lg h-11">
+                  <SelectValue placeholder="Select Difficulty" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="10">10 Points</SelectItem>
-                  <SelectItem value="25">25 Points</SelectItem>
-                  <SelectItem value="50">50 Points</SelectItem>
+                  <SelectItem value="Easy">Easy</SelectItem>
+                  <SelectItem value="Medium">Medium</SelectItem>
+                  <SelectItem value="Hard">Hard</SelectItem>
+                  <SelectItem value="Anxiety-Inducing">Anxiety-Inducing</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -102,7 +102,7 @@ export function VerifyView() {
              <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
                <Sparkles className="w-6 h-6 text-indigo-600" />
              </div>
-             <span className="text-2xl font-bold text-indigo-600">Stick2It Verification</span>
+             <span className="text-2xl font-bold text-indigo-600">RemindAI Verification</span>
           </div>
 
           {isAlreadyVerified ? (

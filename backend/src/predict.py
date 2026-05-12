@@ -111,7 +111,12 @@ class ProcrastinationPredictor:
                             valid_tasks += 1
                 
                 if valid_tasks > 0:
-                    behavior.deadline_pressure = min(10.0, total_pressure / valid_tasks) # cap at 10.0
+                    raw_pressure = total_pressure / valid_tasks
+                    # Apply a U-curve: optimal pressure is around 3.0
+                    # Too little pressure or too much pressure increases the effective risk feature
+                    optimal_pressure = 3.0
+                    u_curve_pressure = min(10.0, abs(raw_pressure - optimal_pressure) * 2.5)
+                    behavior.deadline_pressure = u_curve_pressure
                     session.commit()
 
                 last_login_aware = behavior.last_login
@@ -181,7 +186,8 @@ class ProcrastinationPredictor:
             for c in commitments:
                 # 2. Predict risk using the task title/custom title
                 task_text = c.custom_title or (c.assignment.title if c.assignment else "Task")
-                prediction_result = self.predict_from_task(task_text, c.student_id)
+                # Default subjective difficulty to Medium for automated checks
+                prediction_result = self.predict_from_task(task_text, c.student_id, subjective_difficulty="Medium")
                 
                 # Apply source_platform penalty
                 source = c.assignment.source_platform if c.assignment else 'local'
@@ -208,7 +214,7 @@ class ProcrastinationPredictor:
     # -----------------------------
     # NEW: Task-based prediction
     # -----------------------------
-    def predict_from_task(self, task_description: str, student_id:int=None):
+    def predict_from_task(self, task_description: str, student_id:int=None, subjective_difficulty: str = "Medium"):
         now = datetime.datetime.now(datetime.timezone.utc)
 
         task_length = len(task_description.split())
@@ -225,7 +231,7 @@ class ProcrastinationPredictor:
             'estimated_duration': task_length / 5.0, 
         }
 
-        result = self.predict_risk(features_dict)
+        modifier = 0.0
         
         # IMPORTANT: Fetch real student history if available
         if student_id:
@@ -245,10 +251,6 @@ class ProcrastinationPredictor:
                         'last_minute_ratio': 0.2 + (is_long_task * 0.4), # Higher risk for longer tasks
                         'completion_rate': 0.8 - (is_long_task * 0.3),
                         'engagement_intensity': 5.0 + (is_long_task * 10)
-                        # 'deadline_pressure': 1.0,
-                        # 'login_consistency': 0.8,
-                        # 'early_starter': 1,
-                        # 'activity_span': 10.0
                     })
                 
                 # Apply explicit outcome feedback to task-level prediction too
@@ -258,17 +260,22 @@ class ProcrastinationPredictor:
                     Prediction.actual_outcome.isnot(None)
                 ).order_by(Prediction.predicted_at.desc()).limit(3).all()
                 
-                modifier = 0.0
                 for p in recent_preds:
                     if p.actual_outcome == 1:
                         modifier -= 0.08
                     else:
                         modifier += 0.12
                         
-                adjusted_prob = max(0.01, min(0.99, result['probability_high_risk'] + modifier))
-                result['probability_high_risk'] = adjusted_prob
-                result['risk_score'] = round(adjusted_prob * 100, 2)
-                
+        result = self.predict_risk(features_dict)
+        
+        # Subjective Difficulty directly influences the final probability
+        diff_weight = {"Easy": -0.15, "Medium": 0.0, "Hard": 0.2, "Anxiety-Inducing": 0.3}.get(subjective_difficulty, 0.0)
+        modifier += diff_weight
+        
+        adjusted_prob = max(0.01, min(0.99, result['probability_high_risk'] + modifier))
+        result['probability_high_risk'] = adjusted_prob
+        result['risk_score'] = round(adjusted_prob * 100, 2)
+        
         return result
 
     def refresh_behavior_stats(self, student_id):

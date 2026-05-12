@@ -3,7 +3,7 @@ import os
 
 def migrate_everything():
     found_any = False
-    # Required columns based on your "Stick2It" model errors
+    # Required columns based on your "RemindAI" model errors
     required_columns = [
         ("experimental_group", "BOOLEAN DEFAULT FALSE"),
         ("grace_period_lenience", "INTEGER DEFAULT 0"),

@@ -20,7 +20,7 @@ from backend.app.models import (
 import random
 from backend.app.database import get_db_session
 from backend.app.models import StudentBehavior, Student
-from .predict import ProcrastinationPredictor # 
+from .predict import ProcrastinationPredictor 
 from .email_utils import send_sendgrid_email
 import os
 
@@ -35,11 +35,19 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # This assumes nudge_system.py is in backend/src/
 cert_path = os.path.join(current_dir, "..", "firebase-adminsdk.json")
 
+FIREBASE_ENABLED = False
+
 if os.path.exists(cert_path):
-    cred = credentials.Certificate(cert_path)
-    initialize_app(cred)
+    try:
+        cred = credentials.Certificate(cert_path)
+        initialize_app(cred)
+        FIREBASE_ENABLED = True
+    except ValueError:
+        FIREBASE_ENABLED = True # Already initialized
+    except Exception as e:
+        logger.error(f"Failed to initialize Firebase: {e}")
 else:
-    print(f" Warning: Firebase service account file not found at {cert_path}")
+    logger.warning(f"Firebase service account file not found at {cert_path}. Push notifications will be disabled.")
 
 class SmartNudgeSystem:
     def __init__(self):
@@ -89,10 +97,10 @@ class SmartNudgeSystem:
         ]
 }
     
-    def _can_send(self, student_id, nudge_type):
+    def _can_send(self, student_id, nudge_type, p_fail=0.5):
         """
-        Checks if a nudge can be sent based on frequency caps:
-        1. No more than 2 nudges total in 24 hours across all categories.
+        Checks if a nudge can be sent based on dynamic frequency caps:
+        1. Cap varies based on risk (p_fail).
         2. No duplicate of the same nudge type in 24 hours.
         """
         now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
@@ -104,8 +112,15 @@ class SmartNudgeSystem:
             if uid == student_id and timestamp > day_ago
         ]
 
-        if len(recent_nudges) >= 2:
-            logger.info(f"Nudge cap reached for student {student_id} (2 nudges in 24h).")
+        if p_fail < 0.5:
+            cap = 1
+        elif p_fail <= 0.9:
+            cap = 3
+        else:
+            cap = 5 # Emergency nudges bypass standard caps
+
+        if len(recent_nudges) >= cap:
+            logger.info(f"Nudge cap reached for student {student_id} ({cap} nudges in 24h).")
             return False
 
         # 2. Category Cap: Check specific nudge type for this student
@@ -255,7 +270,7 @@ class SmartNudgeSystem:
                         category = 'time_pressure'
 
                 if should_nudge:
-                    if self._can_send(student_id, category):
+                    if self._can_send(student_id, category, p_fail):
                         template = random.choice(self.nudge_templates[category])
                         message = template.format(**nudge_context)
                         
@@ -583,6 +598,11 @@ class SmartNudgeSystem:
         return send_sendgrid_email(user_email, subject, message, user_name)
 
     def _send_firebase_push(self, registration_token, title, body):
+        global FIREBASE_ENABLED
+        if not FIREBASE_ENABLED:
+            logger.info("Firebase is disabled. Skipping push notification.")
+            return False
+            
         try:
             message = messaging.Message(
                 notification=messaging.Notification(title=title, body=body),
@@ -626,7 +646,7 @@ class SmartNudgeSystem:
         if any(keyword in nudge_type.upper() for keyword in urgent_keywords):
             # Use Firebase for immediate attention
             if getattr(student, "fcm_token", None):
-                success = self._send_firebase_push(student.fcm_token, "Stick2It Alert", message)
+                success = self._send_firebase_push(student.fcm_token, "RemindAI Alert", message)
             
         if not success:
             success = self._send_sendgrid_email(student.email, message, user_name=student.name)
