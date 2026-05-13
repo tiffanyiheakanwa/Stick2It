@@ -14,8 +14,11 @@ export function AISuggestionsView() {
   const [taskBreakdowns, setTaskBreakdowns] = useState<Record<number, any[]>>({});
   const [selectedSubtasks, setSelectedSubtasks] = useState<Record<number, Set<string>>>({});
 
-  // Show only pending/in_progress tasks, and ignore previously generated subtasks
-  const activeTasks = commitments.filter(c => c.status !== 'completed' && c.status !== 'failed' && c.status !== 'kept' && c.stake_type !== 'AI_Subtask');
+  // Show only pending, in_progress, or requires_stake tasks (not awaiting_verification, failed, etc.)
+  const activeTasks = commitments.filter(c => 
+    (c.status === 'pending' || c.status === 'in_progress' || c.status === 'requires_stake') && 
+    c.stake_type !== 'AI_Subtask'
+  );
 
   if (loading) return <AISuggestionsSkeleton />;
 

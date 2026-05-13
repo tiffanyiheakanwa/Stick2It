@@ -24,7 +24,7 @@
       {
           "label": "3. React Frontend",
           "type": "shell",
-          "command": "cd RemindAI-frontend; npm run dev",
+          "command": "cd frontend; npm run dev",
           "isBackground": true,
           "presentation": {
               "group": "RemindAI-group",
