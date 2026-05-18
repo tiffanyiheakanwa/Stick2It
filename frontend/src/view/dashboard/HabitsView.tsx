@@ -1,7 +1,14 @@
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Flame, TrendingUp, Target, Award, Calendar, Check } from "lucide-react";
 import { Button } from "../../components/ui/button";
-import type { Habit } from "../../App";
+export interface Habit {
+  id: number;
+  name: string;
+  streak: number;
+  completed: boolean[];
+  color: string;
+  bgColor: string;
+}
 
 const achievements = [
   { icon: Flame, title: "7 Day Streak", description: "Completed tasks for 7 days straight", color: "text-orange-600", bgColor: "bg-orange-50" },

@@ -16,7 +16,7 @@ interface TaskChecklistProps {
   submitReminder: (id: number) => Promise<void>;
 }
 
-export function TaskChecklist({ reminders, toggleReminder, submitReminder }: TaskChecklistProps) {
+export function TaskChecklist({ reminders, submitReminder }: TaskChecklistProps) {
   const today = new Date().toISOString().split('T')[0];
   const todayReminders = reminders.filter(r => r.date === today);
   

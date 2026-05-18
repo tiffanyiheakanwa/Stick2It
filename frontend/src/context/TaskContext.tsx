@@ -362,7 +362,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <TaskContext.Provider value={{ studentId, token, isAuthenticated: !!token, 
       currentStudent, commitments, nudges, loading, login, logout, refreshData, supervisedTasks, streak, points, stressScore, notifications, handleVerify, handleRespond, startTask, toggleReminder, addReminder, deleteReminder, 
-      setGlobalTaskInput, 
+      globalTaskInput, setGlobalTaskInput, 
       isSaving,
       displayedBadgeCount,
       markNotificationsViewed,
