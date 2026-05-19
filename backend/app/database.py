@@ -6,7 +6,7 @@ from contextlib import contextmanager
 
 # Use an absolute path to ensure all modules target the same file
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SQLALCHEMY_DATABASE_URL = f"sqlite:///{os.path.join(BASE_DIR, '../procrastination.db')}"
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL",   f"sqlite:///{os.path.join(BASE_DIR, '../procrastination.db')}")
 
 # connect_args={"check_same_thread": False} is required for SQLite in FastAPI
 engine = create_engine(
