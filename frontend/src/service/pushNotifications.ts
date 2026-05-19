@@ -13,7 +13,7 @@ export const requestAndSaveToken = async (userToken: string): Promise<string | u
       });
 
       if (token) {
-        await fetch('http://localhost:8000/api/v1/students/me/fcm-token', {
+        await fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/me/fcm-token`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

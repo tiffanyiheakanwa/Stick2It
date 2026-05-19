@@ -30,7 +30,7 @@ export function DashboardView() {
     const loadData = async () => {
       if (!token || !studentId) return;
       try {
-        const response = await fetch(`http://localhost:8000/api/v1/students/${studentId}/stats`, {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/stats`, {
           headers: { "Authorization": `Bearer ${token}` }
         });
         const data = await response.json();
@@ -52,7 +52,7 @@ export function DashboardView() {
   const loadData = async () => {
     if (!token || !studentId) return;
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/students/${studentId}/stats`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/stats`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
       const data = await response.json();

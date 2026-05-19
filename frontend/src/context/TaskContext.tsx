@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 
-const API_BASE_URL = "http://localhost:8000/api/v1";
+const API_BASE_URL = `${import.meta.env.VITE_API_URL}/api/v1`;
 
 interface TaskContextType {
   studentId: number | null;
@@ -87,7 +87,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!hasSyncedThisSession) {
         setHasSyncedThisSession(true);
         // Trigger background sync on first load of the session
-        fetch(`http://localhost:8000/api/v1/students/me/sync-assignments`, {
+        fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/me/sync-assignments`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` }
         })
@@ -115,7 +115,11 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     // Global WebSocket connection for cross-view updates
     if (!studentId) return;
-    const socket = new WebSocket(`ws://localhost:8000/ws/${studentId}`);
+    // Extract the host from VITE_API_URL and determine the protocol
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const wsProtocol = apiUrl.startsWith('https') ? 'wss' : 'ws';
+    const wsHost = apiUrl.replace(/^https?:\/\//, '');
+    const socket = new WebSocket(`${wsProtocol}://${wsHost}/ws/${studentId}`);
 
     socket.onopen = () => {
       console.log("Connected to RemindAI Real-time Sync (Global)");
@@ -173,19 +177,19 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!token || !studentId) return;
     try {
       const [statsRes, nudgeRes, buddyRes, predictRes, notifRes] = await Promise.all([
-        fetch(`http://localhost:8000/api/v1/students/${studentId}/stats`, {
+        fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/stats`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        fetch(`http://localhost:8000/api/v1/students/${studentId}/nudges`, {
+        fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/nudges`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        fetch(`http://localhost:8000/api/v1/buddy/commitments`, {
+        fetch(`${import.meta.env.VITE_API_URL}/api/v1/buddy/commitments`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        fetch(`http://localhost:8000/api/v1/students/${studentId}/predict`, {
+        fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/predict`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        fetch(`http://localhost:8000/api/v1/notifications`, {
+        fetch(`${import.meta.env.VITE_API_URL}/api/v1/notifications`, {
           headers: { Authorization: `Bearer ${token}` }
         })
       ]);
@@ -210,7 +214,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const handleVerify = async (vToken: string, action: 'kept' | 'broken') => {
     if (!token) return;
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/verify/${vToken}/${action}`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/verify/${vToken}/${action}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -229,7 +233,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const handleRespond = async (id: number, action: 'accept' | 'refuse') => {
     if (!token) return;
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/notifications/${id}/respond`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/notifications/${id}/respond`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${token}`, 
@@ -270,7 +274,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const submitReminder = async (id: number) => {
     if (!token) return;
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/commitments/${id}/submit`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/commitments/${id}/submit`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -337,7 +341,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!token) return;
     console.log(" Attempting to start task ID:", assignmentId); 
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/commitments/${assignmentId}/start`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/commitments/${assignmentId}/start`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,

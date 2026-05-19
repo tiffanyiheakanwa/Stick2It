@@ -11,7 +11,7 @@ export function OAuthCallbackView() {
 
     if (token) {
       // Fetch user profile to complete login
-      fetch("http://localhost:8000/api/v1/me", {
+      fetch(`${import.meta.env.VITE_API_URL}/api/v1/me`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       .then(res => {

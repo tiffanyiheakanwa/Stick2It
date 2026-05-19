@@ -27,7 +27,7 @@ export function AISuggestionsView() {
     setBreakdownLoading(prev => ({ ...prev, [task.id]: true }));
     
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/ai/breakdown`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/ai/breakdown`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${token}`,
@@ -77,7 +77,7 @@ export function AISuggestionsView() {
     
     // Phase 5 Feedback Loop
     try {
-      await fetch(`http://localhost:8000/api/v1/interactions`, {
+      await fetch(`${import.meta.env.VITE_API_URL}/api/v1/interactions`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${token}`,

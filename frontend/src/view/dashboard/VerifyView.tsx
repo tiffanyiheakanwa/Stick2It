@@ -34,7 +34,7 @@ export function VerifyView() {
 
   const fetchCommitment = async (verifyToken: string) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/verify/${verifyToken}`);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/verify/${verifyToken}`);
       if (res.ok) {
         const data = await res.json();
         setCommitment(data);
@@ -52,7 +52,7 @@ export function VerifyView() {
     if (!token) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/verify/${token}/${action}`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/verify/${token}/${action}`, {
         method: "POST"
       });
       if (res.ok) {

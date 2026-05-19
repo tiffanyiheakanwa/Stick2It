@@ -17,7 +17,7 @@ export function SettingsView() {
   useEffect(() => {
     const fetchPreference = async () => {
       try {
-        const response = await fetch("http://localhost:8000/api/v1/students/me/preferences", {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/me/preferences`, {
           headers: {
             Authorization: `Bearer ${token}`
           }
@@ -41,7 +41,7 @@ export function SettingsView() {
   const savePreference = async () => {
     setSaving(true);
     try {
-      const response = await fetch("http://localhost:8000/api/v1/students/me/preferences", {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/me/preferences`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -150,7 +150,7 @@ export function SettingsView() {
                       variant="outline" 
                       className="flex-shrink-0 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
                       onClick={() => {
-                          window.location.href = "http://localhost:8000/api/v1/auth/google";
+                          window.location.href = `${import.meta.env.VITE_API_URL}/api/v1/auth/google`;
                       }}
                     >
                       Sync Account

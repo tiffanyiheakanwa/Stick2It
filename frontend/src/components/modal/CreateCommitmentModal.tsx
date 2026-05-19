@@ -38,7 +38,7 @@ export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, init
   useEffect(() => {
     const fetchPartners = async () => {
       try {
-        const response = await fetch("http://localhost:8000/api/v1/partners", {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/partners`, {
           headers: { "Authorization": `Bearer ${token}` }
         });
         const data = await response.json();
@@ -83,8 +83,8 @@ export function CreateCommitmentModal({ isOpen, onOpenChange, initialTitle, init
     try {
       const isActivation = !!activationCommitmentId;
       const url = isActivation 
-        ? `http://localhost:8000/api/v1/commitments/${activationCommitmentId}/activate`
-        : "http://localhost:8000/api/v1/commitments";
+        ? `${import.meta.env.VITE_API_URL}/api/v1/commitments/${activationCommitmentId}/activate`
+        : `${import.meta.env.VITE_API_URL}/api/v1/commitments`;
       const method = isActivation ? "PATCH" : "POST";
 
       const payload = isActivation ? {
