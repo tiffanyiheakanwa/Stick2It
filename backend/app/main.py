@@ -73,7 +73,7 @@ except Exception as e:
 origins = [
     "http://localhost:5173",  
     "http://127.0.0.1:5173",
-    os.getenv("FRONTEND_URL", "https://stick2it.onrender.com", "https://remindai.onrender.com"),
+    os.getenv("FRONTEND_URL", "https://remindai.onrender.com"),
 ]
 
 app.add_middleware(
