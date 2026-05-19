@@ -1,5 +1,4 @@
 import os
-import pandas as pd
 from datetime import datetime, timezone
 from sqlalchemy import and_
 from backend.src.logger import logger
@@ -64,6 +63,7 @@ class MLFeedbackLoop:
                 return None
 
             # Convert to DataFrame for ML processing
+            import pandas as pd
             df = pd.DataFrame([r._asdict() for r in results])
             
             # Label encoding for the outcome (Ground Truth for retraining)
@@ -92,6 +92,7 @@ class MLFeedbackLoop:
                 if not data:
                     return
 
+                import pandas as pd
                 df = pd.DataFrame(data, columns=['type', 'status'])
                 stats = df.groupby('type')['status'].value_counts(normalize=True).unstack().fill_value(0)
                 logger.info(f"📊 Current Nudge Effectiveness Stats:\n{stats}")

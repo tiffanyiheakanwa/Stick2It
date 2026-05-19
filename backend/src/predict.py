@@ -2,9 +2,7 @@
 Procrastination Risk Prediction Module
 Supports both student behavior and individual tasks
 """
-import joblib
-import pandas as pd
-import numpy as np
+# Lazy imports used inside methods to save memory
 import re
 import os
 import datetime
@@ -20,16 +18,43 @@ class ProcrastinationPredictor:
     def __init__(self, model_path = os.path.join(os.path.dirname(__file__), "models/rf_procrastination_model.pkl"),
                  scaler_path=os.path.join(os.path.dirname(__file__), "models/scaler.pkl"),
                  features_path=os.path.join(os.path.dirname(__file__), "models/feature_names.pkl")):
-        """Load trained model and preprocessors"""
-        self.model = joblib.load(model_path)
-        self.scaler = joblib.load(scaler_path)
-        self.feature_names = joblib.load(features_path)
-        print("Model loaded successfully")
+        """Load trained model and preprocessors lazily"""
+        self.model_path = model_path
+        self.scaler_path = scaler_path
+        self.features_path = features_path
+        self._model = None
+        self._scaler = None
+        self._feature_names = None
+
+    @property
+    def model(self):
+        if self._model is None:
+            import joblib
+            self._model = joblib.load(self.model_path)
+            print("Model loaded successfully")
+        return self._model
+
+    @property
+    def scaler(self):
+        if self._scaler is None:
+            import joblib
+            self._scaler = joblib.load(self.scaler_path)
+        return self._scaler
+
+    @property
+    def feature_names(self):
+        if self._feature_names is None:
+            import joblib
+            self._feature_names = joblib.load(self.features_path)
+        return self._feature_names
 
     # -----------------------------
     # Existing method: student features
     # -----------------------------
     def predict_risk(self, features_dict):
+        import pandas as pd
+        import numpy as np
+        
         features_df = pd.DataFrame([features_dict])
 
         # Ensure all expected features exist, filling missing with 0.0
