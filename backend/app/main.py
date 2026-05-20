@@ -280,7 +280,12 @@ async def sync_assignments(current_user_id: int = Depends(get_current_user)):
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
+import json
+
 GOOGLE_CLIENT_SECRETS_FILE = os.path.join(os.path.dirname(__file__), "client_secret.json")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://stick2it.onrender.com/api/v1/auth/callback/google")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://remindai.onrender.com")
+
 GOOGLE_SCOPES = [
     'openid',
     'https://www.googleapis.com/auth/userinfo.email',
@@ -289,85 +294,87 @@ GOOGLE_SCOPES = [
     'https://www.googleapis.com/auth/classroom.coursework.me.readonly',
     'https://www.googleapis.com/auth/classroom.student-submissions.me.readonly'
 ]
-GOOGLE_REDIRECT_URI = "https://stick2it.onrender.com/api/v1/auth/google/callback"
-
-# Temporary cache to store PKCE code verifier across the redirect
-# In production, use encrypted cookies or Redis.
 OAUTH_STATE_CACHE = {}
+
+def get_google_flow(state=None):
+    if os.path.exists(GOOGLE_CLIENT_SECRETS_FILE):
+        kwargs = dict(scopes=GOOGLE_SCOPES, redirect_uri=GOOGLE_REDIRECT_URI)
+        if state:
+            kwargs["state"] = state
+        return Flow.from_client_secrets_file(GOOGLE_CLIENT_SECRETS_FILE, **kwargs)
+    else:
+        client_config = {
+            "web": {
+                "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+                "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [GOOGLE_REDIRECT_URI]
+            }
+        }
+        kwargs = dict(scopes=GOOGLE_SCOPES, redirect_uri=GOOGLE_REDIRECT_URI)
+        if state:
+            kwargs["state"] = state
+        return Flow.from_client_config(client_config, **kwargs)
 
 @app.get("/api/v1/auth/google")
 async def google_login():
-    if not os.path.exists(GOOGLE_CLIENT_SECRETS_FILE):
-        return RedirectResponse(url="http://localhost:5173/?error=MissingClientSecret")
-    
-    flow = Flow.from_client_secrets_file(
-        GOOGLE_CLIENT_SECRETS_FILE,
-        scopes=GOOGLE_SCOPES,
-        redirect_uri=GOOGLE_REDIRECT_URI
-    )
-    
-    authorization_url, state = flow.authorization_url(
-        access_type='offline',
-        include_granted_scopes='true',
-        prompt='consent'
-    )
-    
-    # Store the generated PKCE verifier using the state string as the key
-    OAUTH_STATE_CACHE[state] = getattr(flow, 'code_verifier', None)
-    
-    return RedirectResponse(url=authorization_url)
+    try:
+        flow = get_google_flow()
+        authorization_url, state = flow.authorization_url(
+            access_type='offline',
+            include_granted_scopes='true',
+            prompt='consent'
+        )
+        OAUTH_STATE_CACHE[state] = getattr(flow, 'code_verifier', None)
+        return RedirectResponse(url=authorization_url)
+    except Exception as e:
+        logger.error(f"Google login error: {e}")
+        return RedirectResponse(url=f"{FRONTEND_URL}/?error=MissingClientSecret")
 
 @app.get("/api/v1/auth/google/callback")
 async def google_callback(state: str, code: str):
     try:
-        flow = Flow.from_client_secrets_file(
-            GOOGLE_CLIENT_SECRETS_FILE,
-            scopes=GOOGLE_SCOPES,
-            state=state,
-            redirect_uri=GOOGLE_REDIRECT_URI
-        )
-        
-        # Restore the PKCE code verifier to avoid internal (invalid_grant) errors
+        flow = get_google_flow(state=state)
         code_verifier = OAUTH_STATE_CACHE.pop(state, None)
         if code_verifier:
             flow.code_verifier = code_verifier
-            
+
         flow.fetch_token(code=code)
         credentials = flow.credentials
-        
+
         user_info_service = build('oauth2', 'v2', credentials=credentials)
         user_info = user_info_service.userinfo().get().execute()
-        
+
         email = user_info.get("email", "").lower()
         name = user_info.get("name", "Student")
-        
+
         if not email:
-            return RedirectResponse(url="http://localhost:5173/?error=InvalidGoogleAccount")
-            
+            return RedirectResponse(url=f"{FRONTEND_URL}/?error=InvalidGoogleAccount")
+
         with get_db_session() as session:
             student = session.query(Student).filter_by(email=email).first()
             if not student:
                 student = Student(name=name, email=email, auth_provider="google")
                 session.add(student)
                 session.commit()
-            
+
             student.auth_provider = "google"
             student.ext_access_token = credentials.token
             student.ext_refresh_token = credentials.refresh_token if credentials.refresh_token else student.ext_refresh_token
             session.commit()
-            
+
             token = jwt.encode(
-                {"sub": str(student.id), "exp": datetime.utcnow() + timedelta(hours=1)}, 
-                SECRET_KEY, 
+                {"sub": str(student.id), "exp": datetime.utcnow() + timedelta(hours=1)},
+                SECRET_KEY,
                 algorithm="HS256"
             )
-            
-            frontend_url = f"http://localhost:5173/?token={token}"
-            return RedirectResponse(url=frontend_url)
-            
+
+            return RedirectResponse(url=f"{FRONTEND_URL}/?token={token}")
+
     except Exception as e:
         logger.error(f"Google Callback Error: {e}")
-        return RedirectResponse(url="http://localhost:5173/?error=ServerAuthError")
+        return RedirectResponse(url=f"{FRONTEND_URL}/?error=ServerAuthError")
 
 # =========================
 # PREDICTION
