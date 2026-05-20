@@ -289,7 +289,7 @@ GOOGLE_SCOPES = [
     'https://www.googleapis.com/auth/classroom.coursework.me.readonly',
     'https://www.googleapis.com/auth/classroom.student-submissions.me.readonly'
 ]
-GOOGLE_REDIRECT_URI = "http://localhost:8000/api/v1/auth/google/callback"
+GOOGLE_REDIRECT_URI = "https://stick2it.onrender.com/api/v1/auth/google/callback"
 
 # Temporary cache to store PKCE code verifier across the redirect
 # In production, use encrypted cookies or Redis.
