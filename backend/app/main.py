@@ -71,8 +71,9 @@ except Exception as e:
     raise RuntimeError(f"Startup failure: {e}")
 
 origins = [
-    "http://localhost:5173",  
+    "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://remindai.onrender.com",
     os.getenv("FRONTEND_URL", "https://remindai.onrender.com"),
 ]
 
