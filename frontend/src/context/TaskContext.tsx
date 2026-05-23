@@ -6,13 +6,14 @@ const API_BASE_URL = `${import.meta.env.VITE_API_URL}/api/v1`;
 interface TaskContextType {
   studentId: number | null;
   token: string | null;
-  isAuthenticated: boolean; 
-  currentStudent: any | null; 
+  isAuthenticated: boolean;
+  currentStudent: any | null;
   commitments: any[];
   nudges: any[];
   loading: boolean;
   supervisedTasks: any[];
   notifications: any[];
+  partners: any[];
   streak: number;
   points: number;
   stressScore: number;
@@ -24,10 +25,10 @@ interface TaskContextType {
   logout: () => void;
   refreshData: () => Promise<void>;
   handleVerify: (vToken: string, action: 'kept' | 'broken') => Promise<void>;
-  startTask: (assignmentId:number)=> void;
+  startTask: (assignmentId: number) => void;
   setGlobalTaskInput: (value: string) => void;
-  addReminder: (title: string, time: string, priority?:string, isSubtask?: boolean)=> Promise<void>;
-  toggleReminder: (id:number) => void;
+  addReminder: (title: string, time: string, priority?: string, isSubtask?: boolean) => Promise<void>;
+  toggleReminder: (id: number) => void;
   submitReminder: (id: number) => Promise<void>;
   deleteReminder: (id: number) => Promise<void>;
   handleRespond: (id: number, action: 'accept' | 'refuse') => Promise<void>;
@@ -50,19 +51,20 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [globalTaskInput, setGlobalTaskInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [lastSeenUnreadCount, setLastSeenUnreadCount] = useState(0);
+  const [partners, setPartners] = useState<any[]>([]);
 
   const unreadCount = notifications.filter(n => n.status === 'unread').length;
 
   useEffect(() => {
     if (unreadCount < lastSeenUnreadCount) {
-       setLastSeenUnreadCount(unreadCount);
+      setLastSeenUnreadCount(unreadCount);
     }
   }, [unreadCount, lastSeenUnreadCount]);
 
   const displayedBadgeCount = Math.max(0, unreadCount - lastSeenUnreadCount);
 
   const markNotificationsViewed = () => {
-     setLastSeenUnreadCount(unreadCount);
+    setLastSeenUnreadCount(unreadCount);
   };
 
   // Load auth from sessionStorage on mount
@@ -79,7 +81,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setLoading(false);
   }, []);
-  
+
   const [hasSyncedThisSession, setHasSyncedThisSession] = useState(false);
 
   useEffect(() => {
@@ -91,21 +93,21 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
           method: "POST",
           headers: { Authorization: `Bearer ${token}` }
         })
-        .then(res => res.json().then(data => ({status: res.status, data})))
-        .then(resObj => {
-          if (resObj.status === 401 && resObj.data?.detail?.includes("expired")) {
-            toast.error("Your external account token expired. Please completely sign out and logically click 'Continue with Google' to restore syncing.", { duration: 8000 });
-            refreshData(); 
-          } else if (resObj.status === 200 && resObj.data?.synced_count > 0) {
-            toast.success(`Synced ${resObj.data.synced_count} tasks from your platforms!`, { duration: 4000 });
-            refreshData(); 
-          } else {
+          .then(res => res.json().then(data => ({ status: res.status, data })))
+          .then(resObj => {
+            if (resObj.status === 401 && resObj.data?.detail?.includes("expired")) {
+              toast.error("Your external account token expired. Please completely sign out and logically click 'Continue with Google' to restore syncing.", { duration: 8000 });
+              refreshData();
+            } else if (resObj.status === 200 && resObj.data?.synced_count > 0) {
+              toast.success(`Synced ${resObj.data.synced_count} tasks from your platforms!`, { duration: 4000 });
+              refreshData();
+            } else {
+              refreshData();
+            }
+          }).catch(err => {
+            console.error("Auto-sync error:", err);
             refreshData();
-          }
-        }).catch(err => {
-           console.error("Auto-sync error:", err);
-           refreshData();
-        });
+          });
       } else {
         refreshData();
       }
@@ -129,21 +131,21 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const data = JSON.parse(event.data);
       if (data.type === "COMMITMENT_UPDATED") {
         console.log(`Global sync: Buddy marked task as ${data.status}!`);
-        refreshData(); 
+        refreshData();
 
         if (data.status === "completed") {
           toast.success((_t) => (
-                  <span>
-                      <b>Task Verified!</b> <br />
-                      Buddy confirmed you finished your task. +{data.points_gained || 10} points!
-                  </span>
-              ),
-              { duration: 5000, icon: '✅' }
+            <span>
+              <b>Task Verified!</b> <br />
+              Buddy confirmed you finished your task. +{data.points_gained || 10} points!
+            </span>
+          ),
+            { duration: 5000, icon: '✅' }
           );
         } else if (data.status === "failed") {
           toast.error(
-              "Buddy marked the task as failed. Stake deducted.",
-              { duration: 6000, icon: '⚠️' }
+            "Buddy marked the task as failed. Stake deducted.",
+            { duration: 6000, icon: '⚠️' }
           );
         }
       }
@@ -171,12 +173,12 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setStudentId(null);
     sessionStorage.clear();
   };
-  
-  
+
+
   const refreshData = async () => {
     if (!token || !studentId) return;
     try {
-      const [statsRes, nudgeRes, buddyRes, predictRes, notifRes] = await Promise.all([
+      const [statsRes, nudgeRes, buddyRes, predictRes, notifRes, partnersRes] = await Promise.all([
         fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/stats`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
@@ -191,6 +193,9 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }),
         fetch(`${import.meta.env.VITE_API_URL}/api/v1/notifications`, {
           headers: { Authorization: `Bearer ${token}` }
+        }),
+        fetch(`${import.meta.env.VITE_API_URL}/api/v1/partners`, {
+          headers: { Authorization: `Bearer ${token}` }
         })
       ]);
       const statsData = await statsRes.json();
@@ -198,7 +203,8 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const buddyData = await buddyRes.json();
       const predictData = await predictRes.json();
       const notifData = await notifRes.json();
-      
+      const partnersData = await partnersRes.json();
+
       setCommitments(statsData.commitments || []);
       setStreak(statsData.streak || 0);
       setPoints(statsData.points || 0);
@@ -206,11 +212,12 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setNotifications(notifData.notifications || []);
       setNudges(nudgeData.nudges || []);
       setSupervisedTasks(buddyData.commitments || [])
+      setPartners(partnersData.partners || []);
     } catch (err) {
       console.error("Data refresh failed", err);
     }
   };
-  
+
   const handleVerify = async (vToken: string, action: 'kept' | 'broken') => {
     if (!token) return;
     try {
@@ -221,9 +228,9 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'Content-Type': 'application/json'
         }
       });
-      
+
       if (res.ok) {
-        await refreshData(); 
+        await refreshData();
       }
     } catch (error) {
       console.error("Verification failed:", error);
@@ -235,9 +242,9 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/notifications/${id}/respond`, {
         method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${token}`, 
-          'Content-Type': 'application/json' 
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ action })
       });
@@ -292,7 +299,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addReminder = async (title: string, time: string, priority: string = "Medium", isSubtask: boolean = false) => {
     if (!title.trim()) return;
-    
+
     setIsSaving(true);
     try {
       const response = await fetch(`${API_BASE_URL}/commitments`, {
@@ -315,7 +322,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCommitments((prev) => [
           ...prev,
           {
-            id: savedTask.id, 
+            id: savedTask.id,
             title: title,
             time: time,
             status: "pending",
@@ -323,12 +330,12 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
             date: new Date().toISOString().split('T')[0],
             aiSuggested: isSubtask,
             stake_type: isSubtask ? "AI_Subtask" : "Points",
-            priority: priority ,
+            priority: priority,
             category: "General"
           },
         ]);
-        setGlobalTaskInput(""); 
-        await refreshData();   
+        setGlobalTaskInput("");
+        await refreshData();
       }
     } catch (error) {
       console.error("Context Error adding reminder:", error);
@@ -339,7 +346,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const startTask = async (assignmentId: number) => {
     if (!token) return;
-    console.log(" Attempting to start task ID:", assignmentId); 
+    console.log(" Attempting to start task ID:", assignmentId);
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/commitments/${assignmentId}/start`, {
         method: 'PATCH',
@@ -348,7 +355,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'Content-Type': 'application/json'
         }
       });
-  
+
       if (res.ok) {
         console.log("Backend updated. Re-fetching risk scores...");
         await refreshData();
@@ -364,13 +371,15 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <TaskContext.Provider value={{ studentId, token, isAuthenticated: !!token, 
-      currentStudent, commitments, nudges, loading, login, logout, refreshData, supervisedTasks, streak, points, stressScore, notifications, handleVerify, handleRespond, startTask, toggleReminder, addReminder, deleteReminder, 
-      globalTaskInput, setGlobalTaskInput, 
+    <TaskContext.Provider value={{
+      studentId, token, isAuthenticated: !!token,
+      currentStudent, commitments, nudges, loading, partners, login, logout, refreshData, supervisedTasks, streak, points, stressScore, notifications, handleVerify, handleRespond, startTask, toggleReminder, addReminder, deleteReminder,
+      globalTaskInput, setGlobalTaskInput,
       isSaving,
       displayedBadgeCount,
       markNotificationsViewed,
-      submitReminder }}>
+      submitReminder
+    }}>
       {children}
     </TaskContext.Provider>
   );
