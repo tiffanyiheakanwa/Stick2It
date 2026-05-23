@@ -147,23 +147,26 @@ class CommitmentSystem:
             ).order_by(Commitment.committed_datetime.desc()).all()
             
             # Lazily evaluate deadlines to ensure frontend is always up to date
-            now = datetime.utcnow()
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
             valid_commitments = []
             for c in commitments:
                 deadline = c.assignment.due_date if c.assignment else c.committed_datetime
-                if deadline and now > deadline:
-                    if c.status == 'requires_stake':
-                        c.status = 'expired'
-                        session.commit()
-                        continue # Skip adding to valid_commitments
-                    elif c.status in ['pending', 'in_progress']:
-                        self._process_failure(session, c)
-                        session.commit()
-                        valid_commitments.append(c)
+                if deadline:
+                    deadline_aware = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
+                    if now > deadline_aware:                    
+                        if c.status == 'requires_stake':
+                            c.status = 'expired'
+                            session.commit()
+                            continue # Skip adding to valid_commitments
+                        elif c.status in ['pending', 'in_progress']:
+                            self._process_failure(session, c)
+                            session.commit()
+                            valid_commitments.append(c)
+                        else:
+                            valid_commitments.append(c)
                     else:
                         valid_commitments.append(c)
-                else:
-                    valid_commitments.append(c)
             
             points_record = session.query(StudentPoints).filter(
                 StudentPoints.student_id == student_id

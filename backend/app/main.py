@@ -855,17 +855,71 @@ async def add_partner(data: dict = Body(...), current_user_id: int = Depends(get
         
         if partner.id == current_user_id:
             raise HTTPException(status_code=400, detail="You cannot add yourself.")
+        
+        sender = session.get(Student, current_user_id)
 
         new_notif = Notification(
             recipient_id=partner.id,
             sender_id=current_user_id,
-            message=f"wants to be your accountability buddy!",
+            message=f"{sender.name} wants to be your accountability buddy!",
             type="buddy_request",
             status="unread"
         )
         session.add(new_notif)
         session.commit()
 
+        # 2. Email notification (SendGrid)
+        try:
+            import sendgrid
+            from sendgrid.helpers.mail import Mail
+            sg = sendgrid.SendGridAPIClient(api_key=os.getenv("SENDGRID_API_KEY"))
+            email = Mail(
+                from_email=os.getenv("FROM_EMAIL", "noreply@stick2it.com"),
+                to_emails=partner.email,
+                subject="You have a new accountability buddy request!",
+                html_content=f"""
+                    <h2>Hi {partner.name}!</h2>
+                    <p><strong>{sender.name}</strong> wants to be your accountability buddy on Stick2It.</p>
+                    <p>Log in to accept or decline the request.</p>
+                    <a href="{FRONTEND_URL}">Open Stick2It</a>
+                """
+            )
+            sg.send(email)
+            logger.info(f"Buddy request email sent to {partner.email}")
+        except Exception as e:
+            logger.error(f"Email notification failed: {e}")
+
+        # 3. Push notification (Firebase)
+        try:
+            import firebase_admin.messaging as fm
+            if partner.fcm_token:
+                message = fm.Message(
+                    notification=fm.Notification(
+                        title="New Buddy Request",
+                        body=f"{sender.name} wants to be your accountability buddy!"
+                    ),
+                    token=partner.fcm_token
+                )
+                fm.send(message)
+                logger.info(f"Push notification sent to student {partner.id}")
+        except Exception as e:
+            logger.error(f"Push notification failed: {e}")
+
+        # 4. WebSocket real-time notification
+        try:
+            await manager.send_personal_message(
+                {
+                    "type": "buddy_request",
+                    "message": f"{sender.name} wants to be your accountability buddy!",
+                    "sender_id": current_user_id,
+                    "sender_name": sender.name
+                },
+                partner.id
+            )
+        except Exception as e:
+            logger.error(f"WebSocket notification failed: {e}")
+            
+        logger.info(f"Buddy request notification created: recipient={partner.id}, sender={current_user_id}")
         return {"success": True, "message": "Request sent to " + partner.name}
 
 @app.get("/api/v1/partners")
