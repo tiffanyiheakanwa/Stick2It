@@ -177,6 +177,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshData = async () => {
     if (!token || !studentId) return;
+    setLoading(true);
     try {
       const [statsRes, nudgeRes, buddyRes, predictRes, notifRes, partnersRes] = await Promise.all([
         fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/stats`, {
@@ -215,6 +216,8 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPartners(partnersData.partners || []);
     } catch (err) {
       console.error("Data refresh failed", err);
+    } finally {
+      setLoading(false);
     }
   };
 

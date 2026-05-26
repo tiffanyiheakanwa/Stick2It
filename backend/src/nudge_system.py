@@ -181,7 +181,9 @@ class SmartNudgeSystem:
                 return []
         
             nudges_to_send = []
-            now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
 
             for commit in active_commitments:
                 # [NEW CTA NUDGE INTERRUPT]
@@ -198,7 +200,8 @@ class SmartNudgeSystem:
                     
                 # 3. Calculate time-based variables FIRST
                 target_date = commit.assignment.due_date if commit.assignment else commit.committed_datetime
-                hours_left = int((target_date - now).total_seconds() / 3600)
+                target_date_aware = target_date if target_date.tzinfo else target_date.replace(tzinfo=timezone.utc)
+                hours_left = int((target_date_aware - now).total_seconds() / 3600)
                 completion_percent = 0
                 if commit.assignment_id:
                     # Count total students committed to this assignment
