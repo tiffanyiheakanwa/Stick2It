@@ -3,24 +3,19 @@ End-to-End Integration Test
 Flow:
 signup → add task → predict → nudge → feedback → progress update
 """
-import sys
-import os
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 import pytest
 from datetime import datetime, timedelta
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from database_setup import get_session, Base, Student, StudentBehavior, StudentProgress, StudentPoints
-from commitment_system import CommitmentSystem
-from nudge_system import SmartNudgeSystem
-from predict import ProcrastinationPredictor
-from progress import ProgressTracker
+from backend.src.database_setup import get_session, Base, Student, StudentBehavior, StudentProgress, StudentPoints
+from backend.src.commitment_system import CommitmentSystem
+from backend.src.nudge_system import SmartNudgeSystem
+from backend.src.predict import ProcrastinationPredictor
+from backend.src.progress import ProgressTracker
 from werkzeug.security import generate_password_hash
-from logger import logger
-from utils import safe_execute
+from backend.src.logger import logger
+from backend.src.utils import safe_execute
 
 
 @pytest.fixture

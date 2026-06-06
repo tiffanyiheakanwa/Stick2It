@@ -3,7 +3,7 @@ Smart Nudging System - Just-in-Time Adaptive Interventions
 """
 from sqlalchemy import and_, or_
 from datetime import datetime, timedelta
-import datetime 
+from datetime import datetime, timezone
 import random
 from .logger import logger
 from backend.app.database import get_db_session
@@ -103,7 +103,7 @@ class SmartNudgeSystem:
         1. Cap varies based on risk (p_fail).
         2. No duplicate of the same nudge type in 24 hours.
         """
-        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        now = datetime.datetime.now(datetime.timezone.utc)
         day_ago = now - timedelta(hours=24)
 
         # 1. Global Cap: Count all nudges sent to this student in the last 24h
@@ -182,8 +182,7 @@ class SmartNudgeSystem:
         
             nudges_to_send = []
 
-            from datetime import timezone
-            now = datetime.now(timezone.utc)
+            now = datetime.datetime.now(datetime.timezone.utc)
 
             for commit in active_commitments:
                 # [NEW CTA NUDGE INTERRUPT]
@@ -200,7 +199,7 @@ class SmartNudgeSystem:
                     
                 # 3. Calculate time-based variables FIRST
                 target_date = commit.assignment.due_date if commit.assignment else commit.committed_datetime
-                target_date_aware = target_date if target_date.tzinfo else target_date.replace(tzinfo=timezone.utc)
+                target_date_aware = target_date if target_date.tzinfo else target_date.replace(tzinfo=datetime.timezone.utc)
                 hours_left = int((target_date_aware - now).total_seconds() / 3600)
                 completion_percent = 0
                 if commit.assignment_id:
@@ -307,7 +306,8 @@ class SmartNudgeSystem:
         ).order_by(StudentProgress.started_at.desc()).first()
         
         if last_progress:
-            days_inactive = (datetime.datetime.now(datetime.timezone.utc) - last_progress.started_at).days
+            started_at_aware = last_progress.started_at if last_progress.started_at.tzinfo else last_progress.started_at.replace(tzinfo=datetime.timezone.utc)
+            days_inactive = (datetime.datetime.now(datetime.timezone.utc) - started_at_aware).days
             
             # Nudge after 3+ days of inactivity (based on Himmler et al., 2019)
             if days_inactive >= 3:
@@ -352,7 +352,8 @@ class SmartNudgeSystem:
         ).all()
         
         for commit, content in upcoming:
-            hours_left = (commit.committed_datetime - datetime.datetime.now(datetime.timezone.utc)).total_seconds() / 3600
+            committed_dt_aware = commit.committed_datetime if commit.committed_datetime.tzinfo else commit.committed_datetime.replace(tzinfo=datetime.timezone.utc)
+            hours_left = (committed_dt_aware - datetime.datetime.now(datetime.timezone.utc)).total_seconds() / 3600
             
             message = random.choice(self.nudge_templates['deadline_approaching'])
             message = message.format(

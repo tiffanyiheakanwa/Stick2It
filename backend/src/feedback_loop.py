@@ -1,16 +1,37 @@
 import os
 from datetime import datetime, timezone
 from sqlalchemy import and_
-from backend.src.logger import logger
-from backend.app.database import get_db_session
-from backend.app.models import (
-    Nudge, 
-    Prediction, 
-    Commitment, 
-    StudentBehavior, 
-    Student, 
-    StudentProgress
-)
+
+# Support running as module or as a script from notebooks/CLI by
+# attempting relative imports first, then falling back to absolute
+try:
+    from .logger import logger
+except Exception:
+    from backend.src.logger import logger
+
+try:
+    from ..app.database import get_db_session
+except Exception:
+    from backend.app.database import get_db_session
+
+try:
+    from ..app.models import (
+        Nudge,
+        Prediction,
+        Commitment,
+        StudentBehavior,
+        Student,
+        StudentProgress,
+    )
+except Exception:
+    from backend.app.models import (
+        Nudge,
+        Prediction,
+        Commitment,
+        StudentBehavior,
+        Student,
+        StudentProgress,
+    )
 
 class MLFeedbackLoop:
     def __init__(self, output_dir="data/processed"):

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from backend.app.database import get_db_session
 from backend.app.models import Assignment, Commitment, StudentPoints, Student, Nudge
@@ -71,11 +71,17 @@ class CommitmentSystem:
             if not commitment or commitment.status not in ["pending", "requires_stake", "in_progress", "awaiting_verification"]:
                 return {"success": False, "error": "Invalid or inactive commitment"}
 
-            now = actual_action_time or datetime.utcnow()
+            now = actual_action_time or datetime.now(timezone.utc)
+            if now.tzinfo is None:
+                now = now.replace(tzinfo=timezone.utc)
+
             if commitment.assignment:
                 deadline = commitment.assignment.due_date
             else:
                 deadline = commitment.committed_datetime    
+                        
+            if deadline:
+                deadline = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
                         
             # Strict Integrity Enforcement
             if deadline and now > deadline:
@@ -110,7 +116,7 @@ class CommitmentSystem:
             commitment.is_verified_by_buddy = True
             commitment.status = "kept"
             commitment.assignment.status = "Completed"
-            commitment.completed_at = datetime.utcnow()
+            commitment.completed_at = datetime.now(timezone.utc)
             
             # Update Points and Streaks for Success
             points = session.query(StudentPoints).filter(
@@ -121,7 +127,7 @@ class CommitmentSystem:
                 points.total_points += commitment.stake_value
                 points.current_streak += 1
                 points.longest_streak = max(points.longest_streak, points.current_streak)
-                points.last_commitment_date = datetime.utcnow()
+                points.last_commitment_date = datetime.now(timezone.utc)
 
             self._notify_partner(commitment, result="kept")
             return {"success": True, "message": "Commitment verified! Points released and streak updated."}
@@ -214,7 +220,7 @@ class CommitmentSystem:
             points.total_points += points_change
             points.current_streak += 1
             points.longest_streak = max(points.longest_streak, points.current_streak)
-            points.last_commitment_date = datetime.utcnow()
+            points.last_commitment_date = datetime.now(timezone.utc)
         else:
             # Loss Aversion: Deduct points immediately and reset streak
             points.total_points = max(0, points.total_points - points_change)
