@@ -83,7 +83,7 @@ def protect_streaks():
 
             for student in students:
                 safe_execute(
-                    nudge_system.trigger_streak_protection_cycle(student.id)
+                    nudge_system.trigger_streak_protection_cycle, student.id
                 )
             
     except Exception as e:

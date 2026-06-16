@@ -272,12 +272,17 @@ class SmartNudgeSystem:
                         category = 'time_pressure'
 
                 if should_nudge:
-                    if self._can_send(student_id, category, p_fail):
+                    nudge_type_str = f'{"AI" if student.experimental_group else "STATIC"}_{category.upper()}'
+                    if self._can_send(student_id, nudge_type_str, p_fail):
                         template = random.choice(self.nudge_templates[category])
-                        message = template.format(**nudge_context)
+                        try:
+                            message = template.format(**nudge_context)
+                        except KeyError as e:
+                            logger.warning(f"Nudge template key error for student {student_id}: {e}. Using raw template.")
+                            message = template  # fallback: send un-formatted template
                         
                         nudges_to_send.append({
-                            'type': f'{"AI" if student.experimental_group else "STATIC"}_{category.upper()}',
+                            'type': nudge_type_str,
                             'p_fail': p_fail if student.experimental_group else 0.8, # fallback priority
                             'message': message,
                             'assignment_id': commit.assignment_id,
@@ -587,13 +592,19 @@ class SmartNudgeSystem:
                     # FIXED: Correct indentation so last_activity is recognized
                     if last_activity != today:
                         # Trigger Loss Aversion Nudge
-                        message = random.choice(self.nudge_templates['loss_aversion'])
-                        message = message.format(
-                            streak=points.current_streak,
-                            points=points.total_points
-                        )
+                        template = random.choice(self.nudge_templates['loss_aversion'])
+                        try:
+                            message = template.format(
+                                streak=points.current_streak,
+                                points_at_risk=points.total_points,
+                                task="your active task",
+                                buddy="your buddy",
+                                penalty="the agreed penalty"
+                            )
+                        except KeyError as e:
+                            logger.warning(f"Streak nudge template key error: {e}. Using fallback.")
+                            message = f"Your {points.current_streak}-day streak is at risk! Complete a task today to keep it."
                         
-                        # FIXED: Added 'session' as the first argument as required by your new architecture
                         self._send_personalized_alert(session, points.student_id, "STREAK_PROTECTION", message)
                         logger.info(f" Streak protection nudge sent to student {points.student_id}")
 
@@ -681,6 +692,8 @@ class SmartNudgeSystem:
             )
             session.add(new_nudge)
             self._create_in_app_notification(session, student_id, message, nudge_type)
+            session.commit()  # Persist nudge + notification records
+            self._mark_sent(student_id, nudge_type)
         except Exception as e:
             session.rollback()
             logger.error(f" Failed to log nudge: {e}")
