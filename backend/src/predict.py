@@ -124,37 +124,48 @@ class ProcrastinationPredictor:
                 adjusted_prob = 0.5
             else:
                 now = datetime.datetime.now(datetime.timezone.utc)
+
+                # Check if student is actively working on any task right now
+                in_progress_count = session.query(Commitment).filter(
+                    Commitment.student_id == student_id,
+                    Commitment.status.in_(['in_progress', 'awaiting_verification'])
+                ).count()
+                student_is_active = in_progress_count > 0
                 
                 # Real-Time Time Pressure Calculation
-                pending_commitments = session.query(Commitment).filter_by(
-                    student_id=student_id, status='pending'
-                ).all()
-                
-                total_pressure = 0.0
-                valid_tasks = 0
-                
-                for c in pending_commitments:
-                    deadline = c.assignment.due_date if c.assignment else c.committed_datetime
-                    if deadline:
-                        # ensure timezone aware
-                        if deadline.tzinfo is None:
-                            deadline = deadline.replace(tzinfo=datetime.timezone.utc)
-                            
-                        time_remaining_hrs = (deadline - now).total_seconds() / 3600.0
-                        if time_remaining_hrs > 0:
-                            # Work Required / Time Remaining
-                            pressure = (c.stake_value or 10) / time_remaining_hrs
-                            total_pressure += pressure
-                            valid_tasks += 1
-                
-                if valid_tasks > 0:
-                    raw_pressure = total_pressure / valid_tasks
-                    # Apply a U-curve: optimal pressure is around 3.0
-                    # Too little pressure or too much pressure increases the effective risk feature
-                    optimal_pressure = 3.0
-                    u_curve_pressure = min(10.0, abs(raw_pressure - optimal_pressure) * 2.5)
-                    behavior.deadline_pressure = u_curve_pressure
-                    session.commit()
+                # When actively working, pressure is zero — they're already focused.
+                if student_is_active:
+                    behavior.deadline_pressure = 0.0  # type: ignore[assignment]
+                else:
+                    pending_commitments = session.query(Commitment).filter_by(
+                        student_id=student_id, status='pending'
+                    ).all()
+                    
+                    total_pressure = 0.0
+                    valid_tasks = 0
+                    
+                    for c in pending_commitments:
+                        deadline = c.assignment.due_date if c.assignment else c.committed_datetime
+                        if deadline:
+                            # ensure timezone aware
+                            if deadline.tzinfo is None:
+                                deadline = deadline.replace(tzinfo=datetime.timezone.utc)
+                                
+                            time_remaining_hrs = (deadline - now).total_seconds() / 3600.0
+                            if time_remaining_hrs > 0:
+                                # Work Required / Time Remaining
+                                pressure = (c.stake_value or 10) / time_remaining_hrs
+                                total_pressure += pressure
+                                valid_tasks += 1
+                    
+                    if valid_tasks > 0:
+                        raw_pressure = total_pressure / valid_tasks
+                        # Apply a U-curve: optimal pressure is around 3.0
+                        # Too little pressure or too much pressure increases the effective risk feature
+                        optimal_pressure = 3.0
+                        u_curve_pressure = min(10.0, abs(raw_pressure - optimal_pressure) * 2.5)
+                        behavior.deadline_pressure = u_curve_pressure  # type: ignore[assignment]
+                        session.commit()
 
                 last_login_aware = behavior.last_login
                 if last_login_aware and last_login_aware.tzinfo is None:
@@ -193,22 +204,40 @@ class ProcrastinationPredictor:
                 
                 adjusted_prob = max(0.01, min(0.99, result['probability_high_risk'] + modifier))
 
+                # When the student is in focus mode (actively working), apply a direct
+                # engagement bonus on top of whatever the model computed.
+                if student_is_active:
+                    adjusted_prob = max(0.01, adjusted_prob - 0.30)
+                    logger.info(f"Focus mode active for Student {student_id}. Applied -0.30 engagement discount.")
 
-            
-            # Check pending task risks to ensure the overall risk reflects the highest current task risk
-            pending_commitments = session.query(Commitment).filter_by(
-                student_id=student_id, status='pending'
-            ).all()
-            
-            max_task_risk = 0.0
-            for c in pending_commitments:
-                task_pred = session.query(Prediction).filter_by(
-                    student_id=student_id, assignment_id=c.assignment_id
-                ).order_by(Prediction.predicted_at.desc()).first()
-                if task_pred and task_pred.risk_score and task_pred.risk_score > max_task_risk:
-                    max_task_risk = float(task_pred.risk_score)
+            # -----------------------------------------------------------------------
+            # IMPORTANT: Only use stored task-risk scores to RAISE the overall risk
+            # when the student is NOT actively working.
+            # When they ARE in focus mode, skip this floor so the score can drop.
+            # -----------------------------------------------------------------------
+            in_progress_now = session.query(Commitment).filter(
+                Commitment.student_id == student_id,
+                Commitment.status.in_(['in_progress', 'awaiting_verification'])
+            ).count()
 
-            adjusted_prob = max(adjusted_prob, max_task_risk)
+            if in_progress_now == 0:
+                # Check pending task risks to ensure the overall risk reflects
+                # the highest current task risk (only when nothing is in progress)
+                pending_commitments = session.query(Commitment).filter_by(
+                    student_id=student_id, status='pending'
+                ).all()
+                
+                max_task_risk = 0.0
+                for c in pending_commitments:
+                    task_pred = session.query(Prediction).filter_by(
+                        student_id=student_id, assignment_id=c.assignment_id
+                    ).order_by(Prediction.predicted_at.desc()).first()
+                    if task_pred and task_pred.risk_score and task_pred.risk_score > max_task_risk:
+                        max_task_risk = float(task_pred.risk_score)  # type: ignore[arg-type]
+
+                adjusted_prob = max(adjusted_prob, max_task_risk)
+            else:
+                logger.info(f"Student {student_id} in focus mode — skipping max_task_risk floor.")
             
             result['probability_high_risk'] = adjusted_prob
             result['risk_score'] = round(adjusted_prob * 100, 2)
@@ -224,7 +253,7 @@ class ProcrastinationPredictor:
                 # 2. Predict risk using the task title/custom title
                 task_text = str(c.custom_title or (c.assignment.title if c.assignment else "Task"))
                 # Default subjective difficulty to Medium for automated checks
-                student_id_val = int(c.student_id) if c.student_id is not None else None
+                student_id_val = int(c.student_id) if c.student_id is not None else None  # type: ignore[arg-type]
                 prediction_result = self.predict_from_task(task_text, student_id_val, subjective_difficulty="Medium")
                 
                 # Apply source_platform penalty
@@ -238,7 +267,7 @@ class ProcrastinationPredictor:
                     student_id=c.student_id, assignment_id=c.assignment_id
                 ).order_by(Prediction.predicted_at.desc()).first()
                 
-                if not last_pred or abs(float(last_pred.risk_score) - risk) > 0.05:
+                if not last_pred or abs(float(last_pred.risk_score) - risk) > 0.05:  # type: ignore[arg-type]
                     new_pred = Prediction(
                         student_id=c.student_id,
                         assignment_id=c.assignment_id, # Can be None for custom tasks
@@ -350,8 +379,8 @@ class ProcrastinationPredictor:
                 behavior = StudentBehavior(student_id=student_id)
                 session.add(behavior)
 
-            behavior.last_minute_ratio = last_minute_ratio
-            behavior.completion_rate = completion_rate
+            behavior.last_minute_ratio = last_minute_ratio  # type: ignore[assignment]
+            behavior.completion_rate = completion_rate  # type: ignore[assignment]
 
             in_progress_count = session.query(Commitment).filter(
                 Commitment.student_id == student_id,
@@ -361,16 +390,16 @@ class ProcrastinationPredictor:
             # If they just started a task or finished one, we SLASH the risk score manually 
             # to override the Random Forest's "Deadline Pressure" bias.
             if in_progress_count > 0:
-                behavior.engagement_intensity = 1.0  
+                behavior.engagement_intensity = 1.0  # type: ignore[assignment]
                 # We give them a 'perfect' completion rate for the next prediction
-                behavior.completion_rate = 1.0 
+                behavior.completion_rate = 1.0  # type: ignore[assignment]
                 logger.info(f"User {student_id} is active/verifying. Forcing risk reduction.")
 
             if in_progress > 0 or in_progress_count > 0:
-                behavior.engagement_intensity = 1.0  # Max engagement
-                behavior.completion_rate = min(1.0, behavior.completion_rate + 0.3) # Artificial temporary boost
+                behavior.engagement_intensity = 1.0  # Max engagement  # type: ignore[assignment]
+                behavior.completion_rate = min(1.0, behavior.completion_rate + 0.3)  # type: ignore[assignment,operator]
             else:
-                behavior.engagement_intensity = 0.3 # Low engagement if nothing is active
+                behavior.engagement_intensity = 0.3  # Low engagement if nothing is active  # type: ignore[assignment]
             
             # CRITICAL FIX: Commit behavior changes BEFORE running prediction,
             # so predict_from_database reads the updated values from the DB.
