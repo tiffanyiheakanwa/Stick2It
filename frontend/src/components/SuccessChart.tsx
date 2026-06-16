@@ -16,7 +16,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-import { Skeleton } from "@/components/ui/skeleton";
+import { SectionLoader } from "@/components/SectionLoader";
 import {useTasks} from "../context/TaskContext"
 import { Button } from "@/components/ui/button"
 
@@ -79,26 +79,7 @@ export function SuccessChart() {
   }, [commitments, timeRange]);
 
   if (loading) {
-    return (
-      <div className="p-6 bg-white rounded-2xl shadow-sm border border-gray-100">
-        <Skeleton className="h-6 w-32 mb-8" /> {/* Chart Title */}
-        <div className="flex items-end justify-between h-48 gap-2">
-          {/* Generate 7 bars for the week */}
-          {[...Array(7)].map((_, i) => (
-            <Skeleton 
-              key={i} 
-              className="w-full" 
-              style={{ height: `${Math.floor(Math.random() * 60) + 40}%` }} 
-            />
-          ))}
-        </div>
-        <div className="flex justify-between mt-4">
-          {[...Array(7)].map((_, i) => (
-            <Skeleton key={i} className="h-3 w-8" />
-          ))}
-        </div>
-      </div>
-    );
+    return <SectionLoader label="Building your chart…" />;
   }
   return (
     <Card>

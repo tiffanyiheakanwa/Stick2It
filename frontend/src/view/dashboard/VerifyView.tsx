@@ -3,6 +3,7 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { CheckCircle, XCircle, Sparkles } from "lucide-react";
 import toast from "react-hot-toast";
+import { SectionLoader } from "../../components/SectionLoader";
 
 interface CommitmentDetails {
   id: number;
@@ -73,7 +74,7 @@ export function VerifyView() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-indigo-50">
-        <p className="text-gray-500">Loading verification details...</p>
+        <SectionLoader label="Loading verification details…" />
       </div>
     );
   }

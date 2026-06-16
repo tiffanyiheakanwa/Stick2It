@@ -370,8 +370,20 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { Authorization: `Bearer ${token}` }
       });
       if (response.ok) {
-        toast.success("Task submitted for buddy verification!");
+        const data = await response.json();
+        const msg = data.message || "Task submitted!";
+        if (msg.includes("completed")) {
+          toast.success(`✅ ${msg}`);
+        } else {
+          toast.success(`⏳ ${msg}`);
+        }
         await refreshData();
+        // Explicitly re-fetch prediction so the risk gauge updates immediately
+        fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/predict`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }).then(r => r.json()).then(predictData => {
+          setStressScore(predictData.prediction?.probability_high_risk ?? stressScore);
+        }).catch(() => {});
       } else {
         const data = await response.json();
         toast.error(data.detail || "Failed to submit task");
@@ -457,11 +469,18 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (res.ok) {
         console.log("Backend updated. Re-fetching risk scores...");
         await refreshData();
-        alert("Task started! Focus mode activated. ");
+        toast.success("🚀 Task started! Focus mode activated.");
+        // Explicitly re-fetch prediction so the risk gauge updates immediately
+        fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/predict`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }).then(r => r.json()).then(predictData => {
+          setStressScore(predictData.prediction?.probability_high_risk ?? stressScore);
+        }).catch(() => {});
       }
       else {
         const errorData = await res.json();
         console.error("Backend rejected the start request:", errorData);
+        toast.error(errorData.detail || "Failed to start task.");
       }
     } catch (error) {
       console.error("Failed to start task:", error);
