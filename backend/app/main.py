@@ -3,6 +3,7 @@ from fastapi_utilities import repeat_every
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import HTMLResponse
+from contextlib import asynccontextmanager
 
 from datetime import datetime, timedelta, timezone
 from itsdangerous import SignatureExpired, BadSignature
@@ -21,7 +22,7 @@ from backend.src.feedback_loop import MLFeedbackLoop
 from backend.app.database import get_db_session, SessionLocal
 from backend.app.models import Student, Commitment, Notification, Prediction, StudentPoints
 from backend.app.config import serializer, SECURITY_SALT
-from .tasks import process_student_nudge_task
+from .tasks import process_student_nudge_task, evolve_ai_model
 from backend.src.ingestion import AssignmentIngestor
 from ..src.database_setup import engine, Base 
 
@@ -36,6 +37,9 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from backend.app.config import SECRET_KEY
 security = HTTPBearer()
+
+_risk_cache = {}
+RISK_CACHE_TTL = 300  # 5 minutes
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)) -> int:
     token = credentials.credentials
@@ -55,7 +59,17 @@ def authorize_student(student_id: int = Path(...), current_user_id: int = Depend
         raise HTTPException(status_code=403, detail="Unauthorized access")
     return current_user_id
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application startup and shutdown events."""
+    # Startup
+    start_scheduler()
+    logger.info("Scheduler started on API startup.")
+    _run_nudge_monitoring()
+    yield
+    # Shutdown (add cleanup here if needed)
+
+app = FastAPI(lifespan=lifespan)
 
 # =========================
 # Initialize Core Systems (ONCE)
@@ -115,28 +129,22 @@ async def websocket_endpoint(websocket: WebSocket, student_id: int):
     except WebSocketDisconnect:
         manager.disconnect(student_id)
 
-@app.on_event("startup")
-def startup_event():
-    start_scheduler()
-    logger.info("Scheduler started on API startup.")
-
-@app.on_event("startup")
-@repeat_every(seconds=60 * 15)
-def automated_nudge_monitoring():
+def _run_nudge_monitoring():
+    """Dispatch nudge tasks to Celery for all opted-in students."""
     logger.info(" Initiating parallel nudge cycle...")
-    
     with get_db_session() as session:
         student_ids = [
             s.id for s in session.query(Student.id).filter(Student.no_nudges == False).all()
         ]
-    
     for s_id in student_ids:
         process_student_nudge_task.delay(s_id)
-    
     logger.info(f" Dispatched {len(student_ids)} tasks to Celery queue.")
 
-@app.on_event("startup")
-@repeat_every(seconds=60 * 60 * 24 * 7) # Run once a week
+@repeat_every(seconds=60 * 15)
+def automated_nudge_monitoring():
+    _run_nudge_monitoring()
+
+@repeat_every(seconds=60 * 60 * 24 * 7)  # Run once a week
 def weekly_evolution_trigger():
     evolve_ai_model.delay()
 
@@ -166,7 +174,7 @@ async def register(data: dict = Body(...)):
             
             # Optional: Update auth_provider to track that they now have both
             if hasattr(existing_student, 'auth_provider'):
-                existing_student.auth_provider = "both"
+                existing_student.auth_provider = "both"  # type: ignore[assignment]
 
             session.commit()
             return {
@@ -181,7 +189,7 @@ async def register(data: dict = Body(...)):
 
         # Set default provider if your model uses it
         if hasattr(student, 'auth_provider'):
-            student.auth_provider = "local"
+            student.auth_provider = "local"  # type: ignore[assignment]
 
         session.add(student)
         session.commit()
@@ -195,7 +203,7 @@ async def login(data: dict = Body(...)):
         if not student or not student.verify_password(data.get("password")):
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
-        token = jwt.encode({"sub": str(student.id), "exp": datetime.utcnow() + timedelta(hours=1)}, SECRET_KEY, algorithm="HS256")
+        token = jwt.encode({"sub": str(student.id), "exp": datetime.now(timezone.utc) + timedelta(hours=1)}, SECRET_KEY, algorithm="HS256")
 
         return {
             "success": True,
@@ -263,7 +271,7 @@ async def sync_assignments(current_user_id: int = Depends(get_current_user)):
         
         ingestor = AssignmentIngestor(session)
         try:
-            result = ingestor.sync_for_student(student.id)
+            result = ingestor.sync_for_student(int(student.id))  # type: ignore[arg-type]
             if result.get("success"):
                 return {"success": True, "synced_count": result.get("synced_count", 0)}
             elif result.get("needs_reauth"):
@@ -284,8 +292,10 @@ os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 import json
 
 GOOGLE_CLIENT_SECRETS_FILE = os.path.join(os.path.dirname(__file__), "client_secret.json")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://stick2it.onrender.com/api/v1/auth/callback/google")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://stick2it.onrender.com/api/v1/auth/google/callback")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://remindai.onrender.com")
+GOOGLE_REDIRECT_URI_LOCAL = os.getenv("GOOGLE_REDIRECT_URI_LOCAL", "http://localhost:8000/api/v1/auth/google/callback")
+FRONTEND_URL_LOCAL = os.getenv("FRONTEND_URL_LOCAL", "http://localhost:5173")
 
 GOOGLE_SCOPES = [
     'openid',
@@ -297,9 +307,22 @@ GOOGLE_SCOPES = [
 ]
 OAUTH_STATE_CACHE = {}
 
-def get_google_flow(state=None):
+def get_current_frontend_url(request: Request):
+    if request.url.hostname in ("localhost", "127.0.0.1"):
+        return FRONTEND_URL_LOCAL
+    return FRONTEND_URL
+
+
+def get_current_google_redirect_uri(request: Request):
+    if request.url.hostname in ("localhost", "127.0.0.1"):
+        return GOOGLE_REDIRECT_URI_LOCAL
+    return GOOGLE_REDIRECT_URI
+
+
+def get_google_flow(state=None, redirect_uri=None):
+    redirect_uri = redirect_uri or GOOGLE_REDIRECT_URI
     if os.path.exists(GOOGLE_CLIENT_SECRETS_FILE):
-        kwargs = dict(scopes=GOOGLE_SCOPES, redirect_uri=GOOGLE_REDIRECT_URI)
+        kwargs = dict(scopes=GOOGLE_SCOPES, redirect_uri=redirect_uri)
         if state:
             kwargs["state"] = state
         return Flow.from_client_secrets_file(GOOGLE_CLIENT_SECRETS_FILE, **kwargs)
@@ -310,18 +333,19 @@ def get_google_flow(state=None):
                 "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [GOOGLE_REDIRECT_URI]
+                "redirect_uris": [redirect_uri]
             }
         }
-        kwargs = dict(scopes=GOOGLE_SCOPES, redirect_uri=GOOGLE_REDIRECT_URI)
+        kwargs = dict(scopes=GOOGLE_SCOPES, redirect_uri=redirect_uri)
         if state:
             kwargs["state"] = state
         return Flow.from_client_config(client_config, **kwargs)
 
 @app.get("/api/v1/auth/google")
-async def google_login():
+async def google_login(request: Request):
     try:
-        flow = get_google_flow()
+        redirect_uri = get_current_google_redirect_uri(request)
+        flow = get_google_flow(redirect_uri=redirect_uri)
         authorization_url, state = flow.authorization_url(
             access_type='offline',
             include_granted_scopes='true',
@@ -334,9 +358,10 @@ async def google_login():
         return RedirectResponse(url=f"{FRONTEND_URL}/?error=MissingClientSecret")
 
 @app.get("/api/v1/auth/google/callback")
-async def google_callback(state: str, code: str):
+async def google_callback(request: Request, state: str, code: str):
     try:
-        flow = get_google_flow(state=state)
+        redirect_uri = get_current_google_redirect_uri(request)
+        flow = get_google_flow(state=state, redirect_uri=redirect_uri)
         code_verifier = OAUTH_STATE_CACHE.pop(state, None)
         if code_verifier:
             flow.code_verifier = code_verifier
@@ -345,7 +370,7 @@ async def google_callback(state: str, code: str):
         credentials = flow.credentials
 
         user_info_service = build('oauth2', 'v2', credentials=credentials)
-        user_info = user_info_service.userinfo().get().execute()
+        user_info = user_info_service.userinfo().get().execute()  # type: ignore[attr-defined]
 
         email = user_info.get("email", "").lower()
         name = user_info.get("name", "Student")
@@ -360,22 +385,25 @@ async def google_callback(state: str, code: str):
                 session.add(student)
                 session.commit()
 
-            student.auth_provider = "google"
-            student.ext_access_token = credentials.token
+            student.auth_provider = "google"  # type: ignore[assignment]
+            student.ext_access_token = credentials.token or ""  # type: ignore[assignment]
             student.ext_refresh_token = credentials.refresh_token if credentials.refresh_token else student.ext_refresh_token
             session.commit()
 
             token = jwt.encode(
-                {"sub": str(student.id), "exp": datetime.utcnow() + timedelta(hours=1)},
+                {"sub": str(student.id), "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
                 SECRET_KEY,
                 algorithm="HS256"
             )
 
-            return RedirectResponse(url=f"{FRONTEND_URL}/?token={token}")
+            frontend_url = get_current_frontend_url(request)
+            return RedirectResponse(url=f"{frontend_url}/?token={token}")
 
     except Exception as e:
         logger.error(f"Google Callback Error: {e}")
-        return RedirectResponse(url=f"{FRONTEND_URL}/?error=ServerAuthError")
+        logger.error(traceback.format_exc())
+        frontend_url = get_current_frontend_url(request)
+        return RedirectResponse(url=f"{frontend_url}/?error=ServerAuthError")
 
 # =========================
 # PREDICTION
@@ -418,7 +446,7 @@ async def complete_content(data: dict = Body(...), current_user_id: int = Depend
         data.get("content_id"),
         data.get("time_spent", 0)
     )
-    result["new_recommendations"] = recommender.recommend(current_user_id)
+    result["new_recommendations"] = recommender.recommend(current_user_id)  # type: ignore[index]
     with get_db_session() as session:
         MLFeedbackLoop.log_actual_outcome(session, current_user_id, data.get("content_id"), stayed_on_track=True)
     return result
@@ -436,7 +464,7 @@ verification_attempts = {}
 
 @app.get("/verify/{token}", response_class=HTMLResponse)
 async def buddy_verification_page(token: str, request: Request):
-    client_ip = request.client.host
+    client_ip = request.client.host if request.client else "unknown"
     now = time.time()
     
     # Rate limit: max 10 requests per minute
@@ -507,7 +535,7 @@ async def process_kept(token: str):
             
             await manager.send_personal_message(
                 {"type": "COMMITMENT_UPDATED", "status": "completed", "points_gained": commitment.stake_value}, 
-                commitment.student_id
+                int(commitment.student_id)  # type: ignore[arg-type]
             )
             predictor.refresh_behavior_stats(commitment.student_id)
                 
@@ -536,8 +564,8 @@ async def process_broken(token: str, reason: str = Form(None)):
             session.commit()
             
             await manager.send_personal_message(
-                {"type": "COMMITMENT_UPDATED", "status": "failed"}, 
-                student_id
+                {"type": "COMMITMENT_UPDATED", "status": "failed"},
+                int(student_id)  # type: ignore[arg-type]
             )
             predictor.refresh_behavior_stats(student_id)
             return "<h1>Penalty Executed</h1><p>The stake has been deducted. Accountability works!</p>"
@@ -568,8 +596,10 @@ async def fetch_verify_commitment(token: str, action: str):
             raise HTTPException(status_code=404, detail="Invalid token")
 
         if action == "kept":
-            commitment.status = "completed"
-            commitment.is_verified_by_buddy = True
+            result = commitment_manager.verify_commitment(token)
+            if not result.get("success"):
+                raise HTTPException(status_code=400, detail=result.get("error", "Verification failed"))
+            session.refresh(commitment)
             msg_status = "completed"
             points = commitment.stake_value
             MLFeedbackLoop.log_actual_outcome(session, commitment.student_id, commitment.assignment_id, stayed_on_track=True)
@@ -600,7 +630,7 @@ async def fetch_verify_commitment(token: str, action: str):
                 "status": msg_status,
                 "points_gained": points
             }, 
-            student_id
+            int(student_id)  # type: ignore[arg-type]
         )
 
         return {"success": True, "message": f"Task marked as {msg_status}"}
@@ -625,9 +655,10 @@ async def create_commitment(data: dict = Body(...), current_user_id: int = Depen
             stake_value=data.get("stake_value", 10),
             stake_type=data.get("stake_type", "Points"),
             content_id=data.get("content_id"),
+            parent_commitment_id=data.get("parent_commitment_id")
         )
         
-        c_id = commitment.get("id") if isinstance(commitment, dict) else commitment.id
+        c_id = commitment.get("commitment_id") if isinstance(commitment, dict) else commitment.id
         task_text = data.get('title') or "New Task"
         prediction_result = predictor.predict_from_task(
             task_text, 
@@ -645,7 +676,7 @@ async def create_commitment(data: dict = Body(...), current_user_id: int = Depen
             session.add(new_pred)
             session.commit()
 
-        return {"success": True, "id": c_id}
+        return {"success": True, "id": c_id, "commitment_id": c_id}
     except HTTPException:
         raise
     except Exception as e:
@@ -665,17 +696,17 @@ async def activate_commitment(commit_id: int, data: dict = Body(...), current_us
         buddy_name = data.get("buddy_name")
         stake_value = data.get("stake_value", 10)
         
-        commitment.buddy_name = buddy_name
-        commitment.buddy_email = data.get("buddy_email")
+        commitment.buddy_name = buddy_name  # type: ignore[assignment]
+        commitment.buddy_email = data.get("buddy_email")  # type: ignore[assignment]
         commitment.stake_value = stake_value
-        commitment.stake_type = data.get("stake_type", commitment.stake_type)
-        commitment.status = 'pending'
+        commitment.stake_type = data.get("stake_type", commitment.stake_type)  # type: ignore[assignment]
+        commitment.status = 'pending'  # type: ignore[assignment]
         
         custom_title = commitment.assignment.title if commitment.assignment else (commitment.custom_title or "Task")
         
         # We assume `committed_datetime` maps to assignment deadline natively now.
-        c_dt = commitment.committed_datetime or datetime.utcnow()
-        commitment.penalty_message = f"Lose {stake_value} points if {custom_title} is not completed by {c_dt}"
+        c_dt = commitment.committed_datetime or datetime.now(timezone.utc)
+        commitment.penalty_message = f"Lose {stake_value} points if {custom_title} is not completed by {c_dt}"  # type: ignore[assignment]
         
         session.commit()
         
@@ -690,7 +721,7 @@ async def start_commitment(commit_id: int, current_user_id: int = Depends(get_cu
         if not commitment:
             raise HTTPException(status_code=404, detail=f"Commitment {commit_id} not found")
             
-        commitment.status = 'in_progress'
+        commitment.status = 'in_progress'  # type: ignore[assignment]
         commitment.started_at = datetime.now(timezone.utc)
         
         session.commit()
@@ -707,9 +738,12 @@ async def submit_commitment_for_verification(commit_id: int, current_user_id: in
         
         if commitment.status not in ['pending', 'in_progress']:
             raise HTTPException(status_code=400, detail="Only pending or active tasks can be submitted")
+
+        if commitment.subtasks and any(st.status not in ['completed', 'kept'] for st in commitment.subtasks):
+            raise HTTPException(status_code=400, detail="Complete all subtasks before submitting this task")
             
         if commitment.stake_type == "Social":
-            commitment.status = "awaiting_verification"
+            commitment.status = "awaiting_verification"  # type: ignore[assignment]
             session.commit()
             
             commitment_manager._send_verification_request_alert(commitment)
@@ -717,20 +751,20 @@ async def submit_commitment_for_verification(commit_id: int, current_user_id: in
             
             return {"success": True, "message": "Task submitted for verification"}
         else:
-            commitment.status = "completed"
+            commitment.status = "completed"  # type: ignore[assignment]
             if commitment.assignment:
-                commitment.assignment.status = "Completed"
-            commitment.completed_at = datetime.utcnow()
+                commitment.assignment.status = "Completed"  # type: ignore[assignment]
+            commitment.completed_at = datetime.now(timezone.utc)  # type: ignore[assignment]
             
             points = session.query(StudentPoints).filter(
                 StudentPoints.student_id == current_user_id
             ).first()
 
             if points:
-                points.total_points += commitment.stake_value
-                points.current_streak += 1
-                points.longest_streak = max(points.longest_streak, points.current_streak)
-                points.last_commitment_date = datetime.utcnow()
+                points.total_points = points.total_points + int(commitment.stake_value)  # type: ignore[assignment]
+                points.current_streak = points.current_streak + 1  # type: ignore[assignment]
+                points.longest_streak = max(int(points.longest_streak), int(points.current_streak))  # type: ignore[assignment]
+                points.last_commitment_date = datetime.now(timezone.utc)  # type: ignore[assignment]
                 
             session.commit()
             predictor.refresh_behavior_stats(current_user_id)
@@ -747,7 +781,7 @@ async def delete_commitment(commit_id: int, current_user_id: int = Depends(get_c
         if commitment.stake_type == "Lock-in":
             raise HTTPException(status_code=403, detail="Lock-in commitments cannot be deleted.")
         
-        commitment.status = "expired"
+        commitment.status = "expired"  # type: ignore[assignment]
         session.commit()
         
         return {"success": True, "message": "Task ignored/deleted successfully"}
@@ -756,9 +790,11 @@ async def delete_commitment(commit_id: int, current_user_id: int = Depends(get_c
 async def get_buddy_commitments(current_user_id: int = Depends(get_current_user)):
     with get_db_session() as session:
         student = session.get(Student, current_user_id)
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
         commitments = session.query(Commitment).filter(
             Commitment.buddy_email == student.email,
-            Commitment.status.in_(['pending', 'in_progress'])
+            Commitment.status.in_(['pending', 'in_progress', 'awaiting_verification'])
         ).all()
 
         results = []
@@ -780,7 +816,7 @@ async def get_buddy_commitments(current_user_id: int = Depends(get_current_user)
                 "title": c.custom_title or (c.assignment.title if c.assignment else "Custom Task"),
                 "deadline": c.committed_datetime.isoformat(),
                 "stake": c.stake_value,
-                "risk_score": round(prediction.risk_score * 100, 1) if prediction else "N/A",
+                "risk_score": round(float(prediction.risk_score) * 100, 1) if prediction else "N/A",  # type: ignore[arg-type]
                 "verification_token": c.verification_token
             })
             
@@ -822,7 +858,6 @@ async def log_interaction(data: dict = Body(...), current_user_id: int = Depends
         session.add(interaction)
         session.commit()
         # Real-Time Trigger: Evaluate risk immediately
-        from backend.src.scheduler import process_student_nudge_task
         process_student_nudge_task.delay(current_user_id)
         
         # Calculate new risk and push to websocket
@@ -857,6 +892,8 @@ async def add_partner(data: dict = Body(...), current_user_id: int = Depends(get
             raise HTTPException(status_code=400, detail="You cannot add yourself.")
         
         sender = session.get(Student, current_user_id)
+        if not sender:
+            raise HTTPException(status_code=404, detail="Sender not found")
 
         new_notif = Notification(
             recipient_id=partner.id,
@@ -914,7 +951,7 @@ async def add_partner(data: dict = Body(...), current_user_id: int = Depends(get
                     "sender_id": current_user_id,
                     "sender_name": sender.name
                 },
-                partner.id
+                int(partner.id)  # type: ignore[arg-type]
             )
         except Exception as e:
             logger.error(f"WebSocket notification failed: {e}")
@@ -925,7 +962,9 @@ async def add_partner(data: dict = Body(...), current_user_id: int = Depends(get
 @app.get("/api/v1/partners")
 async def get_partners(current_user_id: int = Depends(get_current_user)):
     with get_db_session() as session:
-        student = session.query(Student).get(current_user_id)
+        student = session.get(Student, current_user_id)
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
         partners_list = [
             {"id": p.id, "name": p.name, "email": p.email} 
             for p in student.partners
@@ -937,6 +976,22 @@ async def get_partners(current_user_id: int = Depends(get_current_user)):
 # =========================
 @app.get("/api/v1/students/{student_id}/nudges")
 async def get_nudges(student_id: int, context: str = "dashboard", auth: int = Depends(authorize_student)):
+    import time
+    
+    # Use cached risk score instead of recalculating every time
+    cache_key = f"risk_{student_id}"
+    now = time.time()
+    
+    if cache_key in _risk_cache and now - _risk_cache[cache_key]['ts'] < RISK_CACHE_TTL:
+        current_risk = _risk_cache[cache_key]['risk']
+    else:
+        try:
+            risk_data = predictor.predict_from_database(student_id)
+            current_risk = risk_data.get('probability_high_risk', 0.5)
+            _risk_cache[cache_key] = {'risk': current_risk, 'ts': now}
+        except Exception:
+            current_risk = 0.5
+
     if context == "all":
         standard_nudges = nudge_service.check_and_send_nudges(student_id)
     else:
@@ -991,13 +1046,16 @@ async def respond_to_request(notif_id: int, data: dict = Body(...), current_user
         if action == "accept":
             sender = session.get(Student, notification.sender_id)
             recipient = session.get(Student, current_user_id)
+
+            if not sender or not recipient:
+                raise HTTPException(status_code=404, detail="User not found")
             
             if sender not in recipient.partners:
                 recipient.partners.append(sender)
             if recipient not in sender.partners:
                 sender.partners.append(recipient)
             
-            notification.status = "accepted"
+            notification.status = "accepted"  # type: ignore[assignment]
             
             new_notif = Notification(
                 recipient_id=sender.id,
@@ -1008,7 +1066,7 @@ async def respond_to_request(notif_id: int, data: dict = Body(...), current_user
             )
             session.add(new_notif)
         else:
-            notification.status = "declined"
+            notification.status = "declined"  # type: ignore[assignment]
 
         session.commit()
         return {"success": True}
@@ -1067,11 +1125,9 @@ async def test_nudge():
     try:
         success = nudge_system._send_personalized_alert(
             session=db,
-            student_id=2, 
-            user_email="iheakanwa.tiffany@gmail.com",
+            student_id=2,
             nudge_type="test_manual",
-            message="Hello! Your AI coach is officially online.",
-            user_name="Tiffany")
+            message="Hello! Your AI coach is officially online.")
         return {"status": "success", "delivered": success}
     except Exception as e:
         # This will print the exact error to your terminal
@@ -1083,7 +1139,9 @@ async def test_nudge():
 @app.get("/test-firebase-push")
 async def test_push(current_user_id: int = Depends(get_current_user)):
     with get_db_session() as session:
-        student = session.query(Student).get(current_user_id)
+        student = session.get(Student, current_user_id)
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
         if not student.fcm_token:
             return {"error": "No FCM token found for this student. Log in again!"}
 

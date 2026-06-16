@@ -104,6 +104,8 @@ class Commitment(Base):
     student_id = Column(Integer, ForeignKey("students.id")) # Explicit link for easy queries
     assignment_id = Column(Integer, ForeignKey("assignments.id"))
     content_id = Column(Integer, ForeignKey("learning_content.id"), nullable=True) # Linked to adaptive content
+    parent_commitment_id = Column(Integer, ForeignKey("commitments.id"), nullable=True)
+    parent_commitment = relationship("Commitment", remote_side=[id], backref="subtasks")
     custom_title = Column(String(200), nullable=True)
 
     stake_type = Column(String(50)) # 'Financial', 'Social', 'Points'

@@ -23,11 +23,11 @@ interface TaskContextType {
   markNotificationsViewed: () => void;
   login: (token: string, student: any) => void;
   logout: () => void;
-  refreshData: () => Promise<void>;
+  refreshData: (isInitial?: boolean) => Promise<void>;
   handleVerify: (vToken: string, action: 'kept' | 'broken') => Promise<void>;
   startTask: (assignmentId: number) => void;
   setGlobalTaskInput: (value: string) => void;
-  addReminder: (title: string, time: string, priority?: string, isSubtask?: boolean) => Promise<void>;
+  addReminder: (title: string, time: string, priority?: string, isSubtask?: boolean, parentId?: number) => Promise<boolean>;
   toggleReminder: (id: number) => void;
   submitReminder: (id: number) => Promise<void>;
   deleteReminder: (id: number) => Promise<void>;
@@ -63,6 +63,52 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const displayedBadgeCount = Math.max(0, unreadCount - lastSeenUnreadCount);
 
+  const parseCommittedDatetime = (timeLabel: string) => {
+    const now = new Date();
+    const lower = timeLabel.toLowerCase();
+
+    if (lower.includes('in')) {
+      const match = lower.match(/in\s*(\d+)\s*hour/);
+      if (match) {
+        const hours = parseInt(match[1], 10);
+        const result = new Date(now.getTime() + hours * 60 * 60 * 1000);
+        return result;
+      }
+    }
+
+    if (lower.includes('tomorrow')) {
+      const timeMatch = lower.match(/tomorrow(?:,\s*(.*))?/);
+      const tomorrow = new Date(now);
+      tomorrow.setDate(now.getDate() + 1);
+      tomorrow.setHours(9, 0, 0, 0);
+      if (timeMatch && timeMatch[1]) {
+        const parsed = new Date(`${tomorrow.toDateString()} ${timeMatch[1]}`);
+        if (!isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+      return tomorrow;
+    }
+
+    if (lower.includes('today')) {
+      const timeMatch = lower.match(/today(?:,\s*(.*))?/);
+      const today = new Date(now);
+      const defaultHour = now.getHours() < 18 ? 18 : 23;
+      const defaultMinute = now.getHours() < 18 ? 0 : 59;
+      today.setHours(defaultHour, defaultMinute, 0, 0);
+      if (timeMatch && timeMatch[1]) {
+        const parsed = new Date(`${today.toDateString()} ${timeMatch[1]}`);
+        if (!isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+      return today;
+    }
+
+    // Default fallback: 2 hours from now
+    return new Date(now.getTime() + 2 * 60 * 60 * 1000);
+  };
+
   const markNotificationsViewed = () => {
     setLastSeenUnreadCount(unreadCount);
   };
@@ -72,11 +118,16 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const savedToken = sessionStorage.getItem('token');
     const savedId = sessionStorage.getItem('studentId');
     const savedStudent = sessionStorage.getItem('student');
+    const cachedCommitments = sessionStorage.getItem('commitments');
+
     if (savedToken && savedId) {
       setToken(savedToken);
       setStudentId(parseInt(savedId));
       if (savedStudent) {
         setCurrentStudent(JSON.parse(savedStudent));
+      }
+      if (cachedCommitments) {
+        setCommitments(JSON.parse(cachedCommitments));
       }
     }
     setLoading(false);
@@ -97,19 +148,19 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .then(resObj => {
             if (resObj.status === 401 && resObj.data?.detail?.includes("expired")) {
               toast.error("Your external account token expired. Please completely sign out and logically click 'Continue with Google' to restore syncing.", { duration: 8000 });
-              refreshData();
+              refreshData(true);
             } else if (resObj.status === 200 && resObj.data?.synced_count > 0) {
               toast.success(`Synced ${resObj.data.synced_count} tasks from your platforms!`, { duration: 4000 });
-              refreshData();
+              refreshData(true);
             } else {
-              refreshData();
+              refreshData(true);
             }
           }).catch(err => {
             console.error("Auto-sync error:", err);
-            refreshData();
+            refreshData(true);
           });
       } else {
-        refreshData();
+        refreshData(true);
       }
     }
   }, [token, studentId]);
@@ -175,21 +226,16 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
 
-  const refreshData = async () => {
+  const refreshData = async (isInitial = false) => {
     if (!token || !studentId) return;
-    setLoading(true);
+    if (isInitial) setLoading(true);
+    
     try {
-      const [statsRes, nudgeRes, buddyRes, predictRes, notifRes, partnersRes] = await Promise.all([
+      const [statsRes, buddyRes, notifRes, partnersRes] = await Promise.allSettled([
         fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/stats`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/nudges`, {
-          headers: { Authorization: `Bearer ${token}` }
-        }),
         fetch(`${import.meta.env.VITE_API_URL}/api/v1/buddy/commitments`, {
-          headers: { Authorization: `Bearer ${token}` }
-        }),
-        fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/predict`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
         fetch(`${import.meta.env.VITE_API_URL}/api/v1/notifications`, {
@@ -199,25 +245,60 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
           headers: { Authorization: `Bearer ${token}` }
         })
       ]);
-      const statsData = await statsRes.json();
-      const nudgeData = await nudgeRes.json();
-      const buddyData = await buddyRes.json();
-      const predictData = await predictRes.json();
-      const notifData = await notifRes.json();
-      const partnersData = await partnersRes.json();
+
+      const statsData = statsRes.status === 'fulfilled' && statsRes.value.ok
+        ? await statsRes.value.json()
+        : { commitments: [], streak: 0, points: 0 };
+      const buddyData = buddyRes.status === 'fulfilled' && buddyRes.value.ok
+        ? await buddyRes.value.json()
+        : { commitments: [] };
+      const notifData = notifRes.status === 'fulfilled' && notifRes.value.ok
+        ? await notifRes.value.json()
+        : { notifications: [] };
+      const partnersData = partnersRes.status === 'fulfilled' && partnersRes.value.ok
+        ? await partnersRes.value.json()
+        : { partners: [] };
+
+      if (statsRes.status !== 'fulfilled' || !statsRes.value.ok) {
+        console.error('Failed to load student stats', statsRes);
+      }
+      if (buddyRes.status !== 'fulfilled' || !buddyRes.value.ok) {
+        console.error('Failed to load buddy commitments', buddyRes);
+      }
+      if (notifRes.status !== 'fulfilled' || !notifRes.value.ok) {
+        console.error('Failed to load notifications', notifRes);
+      }
+      if (partnersRes.status !== 'fulfilled' || !partnersRes.value.ok) {
+        console.error('Failed to load partners', partnersRes);
+      }
 
       setCommitments(statsData.commitments || []);
       setStreak(statsData.streak || 0);
       setPoints(statsData.points || 0);
-      setStressScore(predictData.prediction?.probability_high_risk || 0);
       setNotifications(notifData.notifications || []);
-      setNudges(nudgeData.nudges || []);
-      setSupervisedTasks(buddyData.commitments || [])
+      setSupervisedTasks(buddyData.commitments || []);
       setPartners(partnersData.partners || []);
+
+      // Cache commitments for instant load next time
+      sessionStorage.setItem('commitments', JSON.stringify(statsData.commitments || []));
+
+      // Fetch nudges and predictions in background — don't block UI
+      Promise.all([
+        fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/nudges`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }).then(r => r.json()).catch(() => ({ nudges: [] })),
+        fetch(`${import.meta.env.VITE_API_URL}/api/v1/students/${studentId}/predict`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }).then(r => r.json()).catch(() => ({ prediction: null }))
+      ]).then(([nudgeData, predictData]) => {
+        setNudges(nudgeData.nudges || []);
+        setStressScore(predictData.prediction?.probability_high_risk || 0);
+      });
+
     } catch (err) {
       console.error("Data refresh failed", err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 
@@ -300,8 +381,20 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const addReminder = async (title: string, time: string, priority: string = "Medium", isSubtask: boolean = false) => {
-    if (!title.trim()) return;
+  const addReminder = async (title: string, time: string, priority: string = "Medium", isSubtask: boolean = false, parentId?: number) => {
+    if (!title.trim()) return false;
+
+    const dueDate = parseCommittedDatetime(time);
+    const requestBody: any = {
+      title,
+      committed_datetime: dueDate.toISOString(),
+      stake_value: 10,
+      stake_type: isSubtask ? "AI_Subtask" : "Points"
+    };
+
+    if (parentId) {
+      requestBody.parent_commitment_id = parentId;
+    }
 
     setIsSaving(true);
     try {
@@ -311,37 +404,39 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          title,
-          committed_datetime: new Date().toISOString(),
-          stake_value: 10,
-          stake_type: isSubtask ? "AI_Subtask" : "Points"
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (response.ok) {
         const savedTask = await response.json();
+        const newId = savedTask.id || savedTask.commitment_id;
 
         setCommitments((prev) => [
           ...prev,
           {
-            id: savedTask.id,
-            title: title,
-            time: time,
+            id: newId,
+            title,
+            time,
             status: "pending",
             completed: false,
-            date: new Date().toISOString().split('T')[0],
+            date: dueDate.toISOString().split('T')[0],
             aiSuggested: isSubtask,
             stake_type: isSubtask ? "AI_Subtask" : "Points",
-            priority: priority,
+            priority,
             category: "General"
           },
         ]);
         setGlobalTaskInput("");
         await refreshData();
+        return true;
       }
+
+      const errorData = await response.json().catch(() => null);
+      console.error("Failed to add reminder:", errorData || response.statusText);
+      return false;
     } catch (error) {
       console.error("Context Error adding reminder:", error);
+      return false;
     } finally {
       setIsSaving(false);
     }

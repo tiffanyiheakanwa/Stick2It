@@ -21,14 +21,15 @@ export function QuickReminderCreation({ onAddReminder, value, onChange, onOpenMo
 
   // Unified Save Logic
   const processAdd = async (time: string = "Later today") => {
-    // 1. Validation: Prevent empty tasks
-    if (!value.trim()) return;
+    // 1. Validation: Prevent empty tasks and repeated taps
+    if (!value.trim() || isSaving) return;
 
     setIsSaving(true);
     try {
-      await onAddReminder(value, time);
-      // 2. The parent should handle clearing the 'value' prop, 
-      // but we ensure validation passes first.
+      const success = await onAddReminder(value, time);
+      if (success) {
+        onChange("");
+      }
     } catch (err) {
       console.error("Failed to add", err);
     } finally {

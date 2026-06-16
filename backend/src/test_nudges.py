@@ -1,7 +1,8 @@
 """Test smart nudging system"""
 from .nudge_system import SmartNudgeSystem
 from datetime import datetime, timedelta
-from .database_setup_content import get_session, Commitment, StudentPoints, LearningContent
+from .database_setup_content import get_session
+from .database_setup import Commitment, StudentPoints, LearningContent
 
 def test_nudges():
     system = SmartNudgeSystem()

@@ -2,8 +2,7 @@
 Smart Nudging System - Just-in-Time Adaptive Interventions
 """
 from sqlalchemy import and_, or_
-from datetime import datetime, timedelta
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import random
 from .logger import logger
 from backend.app.database import get_db_session
@@ -15,6 +14,7 @@ from backend.app.models import (
     LearningContent, 
     StudentBehavior, 
     Nudge,
+    Notification,
     Prediction
 )
 import random
@@ -103,7 +103,7 @@ class SmartNudgeSystem:
         1. Cap varies based on risk (p_fail).
         2. No duplicate of the same nudge type in 24 hours.
         """
-        now = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.now(timezone.utc)
         day_ago = now - timedelta(hours=24)
 
         # 1. Global Cap: Count all nudges sent to this student in the last 24h
@@ -131,7 +131,7 @@ class SmartNudgeSystem:
         return True
 
     def _mark_sent(self, student_id, nudge_type):
-        self.sent_cache[(student_id, nudge_type)] = datetime.datetime.now(datetime.timezone.utc)
+        self.sent_cache[(student_id, nudge_type)] = datetime.now(timezone.utc)
 
     def check_and_send_nudges(self, student_id):
         from backend.app.database import get_db_session
@@ -147,7 +147,7 @@ class SmartNudgeSystem:
             if behavior and behavior.last_login:
                 # Calculate actual days since last login
                 # 1. Get current time in UTC
-                now_aware = datetime.datetime.now(datetime.timezone.utc)
+                now_aware = datetime.now(timezone.utc)
 
                 # 2. Strip the timezone info (make it naive)
                 now_naive = now_aware.replace(tzinfo=None)
@@ -182,7 +182,7 @@ class SmartNudgeSystem:
         
             nudges_to_send = []
 
-            now = datetime.datetime.now(datetime.timezone.utc)
+            now = datetime.now(timezone.utc)
 
             for commit in active_commitments:
                 # [NEW CTA NUDGE INTERRUPT]
@@ -199,7 +199,7 @@ class SmartNudgeSystem:
                     
                 # 3. Calculate time-based variables FIRST
                 target_date = commit.assignment.due_date if commit.assignment else commit.committed_datetime
-                target_date_aware = target_date if target_date.tzinfo else target_date.replace(tzinfo=datetime.timezone.utc)
+                target_date_aware = target_date if target_date.tzinfo else target_date.replace(tzinfo=timezone.utc)
                 hours_left = int((target_date_aware - now).total_seconds() / 3600)
                 completion_percent = 0
                 if commit.assignment_id:
@@ -306,8 +306,8 @@ class SmartNudgeSystem:
         ).order_by(StudentProgress.started_at.desc()).first()
         
         if last_progress:
-            started_at_aware = last_progress.started_at if last_progress.started_at.tzinfo else last_progress.started_at.replace(tzinfo=datetime.timezone.utc)
-            days_inactive = (datetime.datetime.now(datetime.timezone.utc) - started_at_aware).days
+            started_at_aware = last_progress.started_at if last_progress.started_at.tzinfo else last_progress.started_at.replace(tzinfo=timezone.utc)
+            days_inactive = (datetime.now(timezone.utc) - started_at_aware).days
             
             # Nudge after 3+ days of inactivity (based on Himmler et al., 2019)
             if days_inactive >= 3:
@@ -346,14 +346,14 @@ class SmartNudgeSystem:
             and_(
                 Commitment.id_student == student_id,
                 Commitment.status == 'pending',
-                Commitment.committed_datetime <= datetime.datetime.now(datetime.timezone.utc) + timedelta(hours=24),
-                Commitment.committed_datetime > datetime.datetime.now(datetime.timezone.utc)
+                Commitment.committed_datetime <= datetime.now(timezone.utc) + timedelta(hours=24),
+                Commitment.committed_datetime > datetime.now(timezone.utc)
             )
         ).all()
         
         for commit, content in upcoming:
-            committed_dt_aware = commit.committed_datetime if commit.committed_datetime.tzinfo else commit.committed_datetime.replace(tzinfo=datetime.timezone.utc)
-            hours_left = (committed_dt_aware - datetime.datetime.now(datetime.timezone.utc)).total_seconds() / 3600
+            committed_dt_aware = commit.committed_datetime if commit.committed_datetime.tzinfo else commit.committed_datetime.replace(tzinfo=timezone.utc)
+            hours_left = (committed_dt_aware - datetime.now(timezone.utc)).total_seconds() / 3600
             
             message = random.choice(self.nudge_templates['deadline_approaching'])
             message = message.format(
@@ -383,7 +383,7 @@ class SmartNudgeSystem:
             and_(
                 Commitment.id_student == student_id,
                 Commitment.status == 'broken',
-                Commitment.updated_at >= datetime.datetime.now(datetime.timezone.utc) - timedelta(hours=24)
+                Commitment.updated_at >= datetime.now(timezone.utc) - timedelta(hours=24)
             )
         ).all()
         
@@ -414,10 +414,10 @@ class SmartNudgeSystem:
         
         # Check if they haven't completed anything today
         if points.last_commitment_date:
-            days_since = (datetime.datetime.now(datetime.timezone.utc).date() - points.last_commitment_date.date()).days
+            days_since = (datetime.now(timezone.utc).date() - points.last_commitment_date.date()).days
             
             # Streak at risk if no activity today and it's past 6pm
-            if days_since >= 1 or datetime.datetime.now(datetime.timezone.utc).hour >= 18:
+            if days_since >= 1 or datetime.now(timezone.utc).hour >= 18:
                 message = random.choice(self.nudge_templates['loss_aversion'])
                 message = message.format(
                     streak=points.current_streak,
@@ -541,7 +541,7 @@ class SmartNudgeSystem:
         # Calculates a mock Probability of Failure (P_fail).
         # Formula: (Work Required / Time Remaining) adjusted by student's historical success.
         # """
-        # now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        # now = datetime.now(timezone.utc).replace(tzinfo=None)
         # deadline = commitment.assignment.due_date
         # created_at = commitment.created_at
         
@@ -581,7 +581,7 @@ class SmartNudgeSystem:
                 
                 # FIXED: All logic must stay inside the 'with' block to access 'points'
                 if points and points.current_streak >= 3:
-                    today = datetime.datetime.now(datetime.timezone.utc).date()
+                    today = datetime.now(timezone.utc).date()
                     last_activity = points.last_commitment_date.date() if points.last_commitment_date else None
                     
                     # FIXED: Correct indentation so last_activity is recognized
@@ -613,10 +613,52 @@ class SmartNudgeSystem:
                 token=registration_token,
             )
             response = messaging.send(message)
-            print(f"Successfully sent Firebase message: {response}")
+            logger.info(f"Successfully sent Firebase message: {response}")
             return True
         except Exception as e:
             logger.error(f"Failed to send Firebase message: {e}")
+            return False
+
+    def _create_in_app_notification(self, session, student_id, message, nudge_type):
+        try:
+            notification = Notification(
+                recipient_id=student_id,
+                sender_id=None,
+                message=message,
+                type="nudge",
+                status="unread",
+                created_at=datetime.now(timezone.utc)
+            )
+            session.add(notification)
+            session.flush()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create in-app nudge notification: {e}")
+            session.rollback()
+            return False
+
+    def _send_websocket_notification(self, student_id, message):
+        try:
+            from backend.app.main import manager
+            import asyncio
+            async def _notify():
+                await manager.send_personal_message({
+                    "type": "NUDGE_ALERT",
+                    "message": message
+                }, student_id)
+
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(_notify())
+                else:
+                    asyncio.run(_notify())
+            except RuntimeError:
+                asyncio.run(_notify())
+
+            return True
+        except Exception as e:
+            logger.info(f"WebSocket notification unavailable or failed: {e}")
             return False
 
     def _send_personalized_alert(self, session, student_id, nudge_type, message, assignment_id=None, commitment_id=None):
@@ -635,27 +677,26 @@ class SmartNudgeSystem:
                 commitment_id=commitment_id,
                 message=message,
                 nudge_type=nudge_type,
-                sent_at=datetime.datetime.now(datetime.timezone.utc)
+                sent_at=datetime.now(timezone.utc)
             )
             session.add(new_nudge)
-            session.commit()
+            self._create_in_app_notification(session, student_id, message, nudge_type)
         except Exception as e:
             session.rollback()
             logger.error(f" Failed to log nudge: {e}")
 
-        success = False
+        email_success = False
+        push_success = False
+        websocket_success = self._send_websocket_notification(student_id, message)
 
         # 2. Routing Logic
         urgent_keywords = ["URGENT", "DEADLINE", "TIME_PRESSURE", "LOSS_AVERSION", "CALL_TO_ACTION"]
-        if any(keyword in nudge_type.upper() for keyword in urgent_keywords):
-            # Use Firebase for immediate attention
-            if getattr(student, "fcm_token", None):
-                success = self._send_firebase_push(student.fcm_token, "RemindAI Alert", message)
-            
-        if not success:
-            success = self._send_sendgrid_email(student.email, message, user_name=student.name)
-            
-        return success
+        if getattr(student, "fcm_token", None):
+            push_success = self._send_firebase_push(student.fcm_token, "RemindAI Alert", message)
+
+        email_success = self._send_sendgrid_email(student.email, message, user_name=student.name)
+
+        return email_success or push_success or websocket_success
         
 
     def _log_prediction(self, session, student_id, assignment_id, p_fail):
@@ -668,7 +709,7 @@ class SmartNudgeSystem:
             student_id=student_id,
             assignment_id=assignment_id,
             risk_score=p_fail,
-            predicted_at=datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+            predicted_at=datetime.now(timezone.utc).replace(tzinfo=None)
         )
         session.add(new_pred)
 

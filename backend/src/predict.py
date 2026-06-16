@@ -82,8 +82,17 @@ class ProcrastinationPredictor:
             'probability_low_risk': float(round(probability[0], 3))
         }
 
-    def predict_from_database(self, student_id):
-        with get_db_session() as session:  # Auto-closes session
+    def predict_from_database(self, student_id, session=None):
+        class DummyContext:
+            def __init__(self, active_session):
+                self.active_session = active_session
+            def __enter__(self):
+                return self.active_session
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+        db_context = DummyContext(session) if session is not None else get_db_session()
+        with db_context as session:
             student = session.query(Student).filter_by(id=student_id).first()
             if not student:
                 return (f"Student {student_id} not found")
@@ -107,7 +116,10 @@ class ProcrastinationPredictor:
                 result = {
                     'prediction': 'medium_risk',
                     'risk_category': 'Medium',
-                    'is_new_user': True
+                    'is_new_user': True,
+                    'probability_high_risk': 0.5,
+                    'probability_low_risk': 0.5,
+                    'risk_score': 50.0
                 }
                 adjusted_prob = 0.5
             else:
@@ -194,7 +206,7 @@ class ProcrastinationPredictor:
                     student_id=student_id, assignment_id=c.assignment_id
                 ).order_by(Prediction.predicted_at.desc()).first()
                 if task_pred and task_pred.risk_score and task_pred.risk_score > max_task_risk:
-                    max_task_risk = task_pred.risk_score
+                    max_task_risk = float(task_pred.risk_score)
 
             adjusted_prob = max(adjusted_prob, max_task_risk)
             
@@ -210,9 +222,10 @@ class ProcrastinationPredictor:
             
             for c in commitments:
                 # 2. Predict risk using the task title/custom title
-                task_text = c.custom_title or (c.assignment.title if c.assignment else "Task")
+                task_text = str(c.custom_title or (c.assignment.title if c.assignment else "Task"))
                 # Default subjective difficulty to Medium for automated checks
-                prediction_result = self.predict_from_task(task_text, c.student_id, subjective_difficulty="Medium")
+                student_id_val = int(c.student_id) if c.student_id is not None else None
+                prediction_result = self.predict_from_task(task_text, student_id_val, subjective_difficulty="Medium")
                 
                 # Apply source_platform penalty
                 source = c.assignment.source_platform if c.assignment else 'local'
@@ -225,7 +238,7 @@ class ProcrastinationPredictor:
                     student_id=c.student_id, assignment_id=c.assignment_id
                 ).order_by(Prediction.predicted_at.desc()).first()
                 
-                if not last_pred or abs(last_pred.risk_score - risk) > 0.05:
+                if not last_pred or abs(float(last_pred.risk_score) - risk) > 0.05:
                     new_pred = Prediction(
                         student_id=c.student_id,
                         assignment_id=c.assignment_id, # Can be None for custom tasks
@@ -239,7 +252,7 @@ class ProcrastinationPredictor:
     # -----------------------------
     # NEW: Task-based prediction
     # -----------------------------
-    def predict_from_task(self, task_description: str, student_id:int=None, subjective_difficulty: str = "Medium"):
+    def predict_from_task(self, task_description: str, student_id: int | None = None, subjective_difficulty: str = "Medium"):
         now = datetime.datetime.now(datetime.timezone.utc)
 
         task_length = len(task_description.split())
@@ -264,10 +277,10 @@ class ProcrastinationPredictor:
                 behavior = session.query(StudentBehavior).filter_by(student_id=student_id).first()
                 if behavior:
                     features_dict.update({
-                        'last_minute_ratio': behavior.last_minute_ratio or 0.5,
-                        'completion_rate': behavior.completion_rate or 0.5,
-                        'engagement_intensity': behavior.engagement_intensity or 10.0,
-                        'deadline_pressure': behavior.deadline_pressure or 0.0,
+                        'last_minute_ratio': getattr(behavior, 'last_minute_ratio') or 0.5,
+                        'completion_rate': getattr(behavior, 'completion_rate') or 0.5,
+                        'engagement_intensity': getattr(behavior, 'engagement_intensity') or 10.0,
+                        'deadline_pressure': getattr(behavior, 'deadline_pressure') or 0.0,
                     })
                 else:
                     # Fallback for new students with no history

@@ -14,7 +14,11 @@ import { useState, useEffect } from "react";
 import { useTasks } from "../../context/TaskContext";
 import { DashboardSkeleton } from "../../components/dashboard/DashboardSkeleton"; 
 
-export function DashboardView() {
+interface DashboardViewProps {
+  onNavigate?: (section: string) => void;
+}
+
+export function DashboardView({ onNavigate }: DashboardViewProps) {
   const { commitments, token, studentId, currentStudent, nudges, refreshData, addReminder, loading, stressScore } = useTasks();
   const [quickInput, setQuickInput] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -97,7 +101,7 @@ export function DashboardView() {
       <div className="flex flex-col xl:flex-row gap-5">
         <div className="xl:flex-1 min-w-0 space-y-3">
           <StakesAtRiskCard commitments={localCommitments} loading={loading} />
-          <NudgesNotifications externalNudges={nudges}/>
+          <NudgesNotifications externalNudges={nudges} onNavigate={onNavigate} />
         </div>
         <div className="xl:block min-w-0 ">
         </div>

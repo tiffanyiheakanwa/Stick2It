@@ -8,7 +8,12 @@ import { useTasks } from "../context/TaskContext";
  * Combined Nudges Component: 
  * Handles both standard behavioral suggestions and AI-driven Loss Aversion alerts.
  */
-export function NudgesNotifications({ externalNudges = [] }: { externalNudges?: any[] }) {
+interface NudgesNotificationsProps {
+  externalNudges?: any[];
+  onNavigate?: (section: string) => void;
+}
+
+export function NudgesNotifications({ externalNudges = [], onNavigate }: NudgesNotificationsProps) {
   const { loading, startTask } = useTasks();
   // // Default static nudges for UI consistency
   // const defaultNudges = [
@@ -93,20 +98,29 @@ export function NudgesNotifications({ externalNudges = [] }: { externalNudges?: 
                   </div>
                   <div className="mt-3 flex gap-2">
                     <Button 
-                    variant="destructive" 
-                    size="sm" 
-                    onClick={() => {
-                      const rawId = nudge.assignment_id || nudge.id;
-                      const cleanId = typeof rawId === 'string' 
-                        ? parseInt(rawId.replace(/^\D+/g, ''), 10) 
-                        : rawId;
-                  
-                      if (!isNaN(cleanId)) {
-                        startTask(cleanId);
-                      }
-                    }}
-                    className="font-bold">Start Now</Button>
-                    <Button variant="ghost" size="sm">Review Plan</Button>
+                      variant="destructive" 
+                      size="sm" 
+                      onClick={() => {
+                        const rawId = nudge.assignment_id || nudge.id;
+                        const cleanId = typeof rawId === 'string' 
+                          ? parseInt(rawId.replace(/^\D+/g, ''), 10) 
+                          : rawId;
+                      
+                        if (!isNaN(cleanId)) {
+                          startTask(cleanId);
+                        }
+                      }}
+                      className="font-bold"
+                    >
+                      Start Now
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => onNavigate?.('reminders')}
+                    >
+                      Review Plan
+                    </Button>
                   </div>
                 </AlertDescription>
               </div>
@@ -115,13 +129,13 @@ export function NudgesNotifications({ externalNudges = [] }: { externalNudges?: 
         }
 
         // Standard UI for other nudges...
-        return <StandardNudge key={nudge.id} nudge={nudge} />;
+        return <StandardNudge key={nudge.id} nudge={nudge} onNavigate={onNavigate} />;
       })}
     </div>
   );
 }
 
-function StandardNudge({ nudge }: { nudge: any }) {
+function StandardNudge({ nudge, onNavigate }: { nudge: any; onNavigate?: (section: string) => void }) {
   const Icon = nudge.icon || Calendar;
   
   return (
@@ -134,7 +148,12 @@ function StandardNudge({ nudge }: { nudge: any }) {
             <p className="text-gray-600 text-sm">{nudge.message}</p>
           </div>
           {nudge.action && (
-            <Button variant="outline" size="sm" className="whitespace-nowrap">
+            <Button
+              variant="outline"
+              size="sm"
+              className="whitespace-nowrap"
+              onClick={() => onNavigate?.('reminders')}
+            >
               {nudge.action}
             </Button>
           )}

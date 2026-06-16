@@ -1,24 +1,27 @@
 """Student Progress Tracking (Integrity-Enforced)"""
 
-from sqlalchemy import create_engine, and_
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import and_
 from backend.app.models import StudentProgress
-from datetime import datetime
+from datetime import datetime, timezone
 from .logger import logger
 from .utils import safe_execute
 
 class ProgressTracker:
-    def __init__(self):
-        engine = create_engine("sqlite:///procrastination.db")
-        Session = sessionmaker(bind=engine)
-        self.session = Session()
+    def __init__(self, session=None):
+        if session is not None:
+            self.session = session
+            self._own_session = False
+        else:
+            from backend.app.database import SessionLocal
+            self.session = SessionLocal()
+            self._own_session = True
 
     def start_content(self, student_id, content_id):
         """Mark content as started (only once)"""
 
         existing = self.session.query(StudentProgress).filter(
             and_(
-                StudentProgress.id_student == student_id,
+                StudentProgress.student_id == student_id,
                 StudentProgress.content_id == content_id
             )
         ).first()
@@ -30,10 +33,10 @@ class ProgressTracker:
             }
 
         progress = StudentProgress(
-            id_student=student_id,
+            student_id=student_id,
             content_id=content_id,
             status="in_progress",
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
             time_spent=0
         )
 
@@ -49,7 +52,7 @@ class ProgressTracker:
 
         progress = self.session.query(StudentProgress).filter(
             and_(
-                StudentProgress.id_student == student_id,
+                StudentProgress.student_id == student_id,
                 StudentProgress.content_id == content_id
             )
         ).first()
@@ -62,17 +65,17 @@ class ProgressTracker:
 
         if not progress:
             progress = StudentProgress(
-                id_student=student_id,
+                student_id=student_id,
                 content_id=content_id,
                 status="completed",
-                started_at=datetime.utcnow(),
-                completed_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
                 time_spent=time_spent
             )
             self.session.add(progress)
         else:
             progress.status = "completed"
-            progress.completed_at = datetime.utcnow()
+            progress.completed_at = datetime.now(timezone.utc)
             progress.time_spent = time_spent
 
         self.session.commit()
@@ -83,7 +86,7 @@ class ProgressTracker:
         """Get bounded student statistics"""
 
         all_progress = self.session.query(StudentProgress).filter(
-            StudentProgress.id_student == student_id
+            StudentProgress.student_id == student_id
         ).all()
 
         completed = [p for p in all_progress if p.status == "completed"]
@@ -106,5 +109,10 @@ class ProgressTracker:
             "completion_rate": completion_rate
         }
 
+    def update_daily_streaks(self):
+        """Update daily streaks placeholder (streaks are primarily managed via commitment verification)"""
+        logger.info("Daily streak update check completed.")
+
     def close(self):
-        self.session.close()
+        if self._own_session:
+            self.session.close()

@@ -76,7 +76,12 @@ export function RemindersView(){
       </div>
 
       <div className="grid grid-cols-1 gap-4">
-        {filteredReminders.map((commitment) => (
+        {filteredReminders.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-gray-300 bg-gray-50 p-10 text-center text-gray-500">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No reminders found</h3>
+            <p className="max-w-md mx-auto">It looks like you don’t have any reminders yet. Create one from the dashboard or refresh the page to sync your commitments.</p>
+          </div>
+        ) : filteredReminders.map((commitment) => (
           <Card key={commitment.id} className={commitment.status === 'requires_stake' ? 'border-orange-300 bg-orange-50' : ''}>
             <CardContent className="p-4">
               <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
@@ -139,7 +144,7 @@ export function RemindersView(){
                       Mark Done
                     </Button>
                   )}
-                  {commitment.status === 'requires_stake' && (
+                  {commitment.status !== 'kept' && commitment.status !== 'completed' && (
                     <Button 
                       variant="outline" 
                       size="sm" 

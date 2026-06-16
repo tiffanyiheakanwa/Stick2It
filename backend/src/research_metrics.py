@@ -1,12 +1,12 @@
 import pandas as pd
 from datetime import timedelta
 from sqlalchemy import create_engine
-from backend.app.database import SQLALCHEMY_DATABASE_URL
+from backend.app.database import DATABASE_URL
 from backend.app.models import Interaction, Nudge, Prediction
 from sqlalchemy.orm import sessionmaker
 
 # Set up Database Connection
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def calculate_research_metrics():
@@ -49,14 +49,14 @@ def calculate_research_metrics():
         pred_before = predictions[
             (predictions['student_id'] == nudge['student_id']) &
             (predictions['predicted_at'] <= nudge['sent_at'])
-        ].sort_values(by='predicted_at', ascending=False).first()
+        ].sort_values(by='predicted_at', ascending=False)
 
         # Get prediction roughly 24 hours later
         pred_after = predictions[
             (predictions['student_id'] == nudge['student_id']) &
             (predictions['predicted_at'] > nudge['sent_at'] + timedelta(hours=20)) &
             (predictions['predicted_at'] <= nudge['sent_at'] + timedelta(hours=28))
-        ].sort_values(by='predicted_at', ascending=True).first()
+        ].sort_values(by='predicted_at', ascending=True)
 
         if not pred_before.empty and not pred_after.empty:
             risk_before = pred_before['risk_score'].iloc[0]

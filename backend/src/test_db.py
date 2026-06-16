@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
-from .database_setup_content import Student, StudentBehavior
+from .database_setup import Student, StudentBehavior
 from sqlalchemy import Integer
 
 engine = create_engine('sqlite:///procrastination.db')
@@ -27,9 +27,9 @@ for risk in [True, False]:
     avg = session.query(
         func.avg(StudentBehavior.last_minute_ratio),
         func.avg(StudentBehavior.num_login_days)
-    ).filter(StudentBehavior.high_risk == risk).first()
+    ).filter(StudentBehavior.high_risk == risk).first() or (0.0, 0.0)
     
-    print(f"  {label} Risk - Last min: {avg[0]:.3f}, Logins: {avg[1]:.1f}")
+    print(f"  {label} Risk - Last min: {float(avg[0] or 0.0):.3f}, Logins: {float(avg[1] or 0.0):.1f}")
 
 # Test 4: Sample query (FIXED - handle None values)
 print(f"\n✓ Sample high-risk students:")
@@ -49,7 +49,7 @@ null_counts = session.query(
     func.count().filter(StudentBehavior.last_minute_ratio == None).label('null_last_min'),
     func.count().filter(StudentBehavior.num_login_days == None).label('null_logins'),
     func.count().filter(StudentBehavior.engagement_intensity == None).label('null_engagement')
-).first()
+).first() or (0, 0, 0)
 
 print(f"  Records with missing last_minute_ratio: {null_counts[0] if null_counts[0] else 0}")
 print(f"  Records with missing login days: {null_counts[1] if null_counts[1] else 0}")

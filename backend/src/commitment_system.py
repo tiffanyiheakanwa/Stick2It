@@ -17,7 +17,7 @@ class CommitmentSystem:
     def create_commitment(self, student_id, committed_datetime, custom_title=None, 
                       buddy_email=None, buddy_name=None, stake_value=10, 
                       stake_type="Points",
-                     penalty_message=None, content_id=None):
+                      penalty_message=None, content_id=None, parent_commitment_id=None):
         """
         Creates a high-stakes commitment linked to an assignment.
         Generates a unique verification token for the Accountability Partner.
@@ -32,6 +32,7 @@ class CommitmentSystem:
             new_commitment = Commitment(
                 student_id=student_id,
                 content_id=content_id,
+                parent_commitment_id=parent_commitment_id,
                 stake_type=stake_type,
                 custom_title=custom_title, 
                 stake_value=stake_value,
@@ -52,8 +53,9 @@ class CommitmentSystem:
             if stake_type == "Points":
                 self._initialize_points_record(session, student_id)
             
-            # 5. Notify the partner immediately that the contract is locked
-            self._send_initial_buddy_alert(new_commitment)
+            # 6. Notify buddy only when a partner is configured
+            if buddy_email:
+                self._send_initial_buddy_alert(new_commitment)
 
             return {
                 "success": True, 
@@ -86,7 +88,7 @@ class CommitmentSystem:
             # Strict Integrity Enforcement
             if deadline and now > deadline:
                 if commitment.status == "requires_stake":
-                    commitment.status = "expired"
+                    commitment.status = "expired"  # type: ignore[assignment]
                     session.commit()
                     return {"success": True, "status": "expired"}
                 else:
@@ -110,12 +112,13 @@ class CommitmentSystem:
             if not commitment:
                 return {"success": False, "error": "Invalid verification token"}
 
-            if commitment.status != "pending":
+            if commitment.status in ["completed", "kept", "broken", "failed"]:
                 return {"success": True, "status": commitment.status}
 
-            commitment.is_verified_by_buddy = True
-            commitment.status = "kept"
-            commitment.assignment.status = "Completed"
+            commitment.is_verified_by_buddy = True  # type: ignore[assignment]
+            commitment.status = "completed"  # type: ignore[assignment]
+            if commitment.assignment:
+                commitment.assignment.status = "Completed"  # type: ignore[assignment]
             commitment.completed_at = datetime.now(timezone.utc)
             
             # Update Points and Streaks for Success
@@ -124,11 +127,12 @@ class CommitmentSystem:
             ).first()
 
             if points:
-                points.total_points += commitment.stake_value
-                points.current_streak += 1
-                points.longest_streak = max(points.longest_streak, points.current_streak)
+                points.total_points = points.total_points + int(commitment.stake_value)  # type: ignore[assignment]
+                points.current_streak = points.current_streak + 1  # type: ignore[assignment]
+                points.longest_streak = max(int(points.longest_streak), int(points.current_streak))  # type: ignore[assignment]
                 points.last_commitment_date = datetime.now(timezone.utc)
 
+            session.commit()
             self._notify_partner(commitment, result="kept")
             return {"success": True, "message": "Commitment verified! Points released and streak updated."}
 
@@ -162,7 +166,7 @@ class CommitmentSystem:
                     deadline_aware = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
                     if now > deadline_aware:                    
                         if c.status == 'requires_stake':
-                            c.status = 'expired'
+                            c.status = 'expired'  # type: ignore[assignment]
                             session.commit()
                             continue # Skip adding to valid_commitments
                         elif c.status in ['pending', 'in_progress']:
@@ -194,6 +198,7 @@ class CommitmentSystem:
                         "penalty_message": c.penalty_message,
                         "committed_datetime": c.committed_datetime.isoformat() if c.committed_datetime else None,
                         "completed_at": c.completed_at.isoformat() if c.completed_at else (c.updated_at.isoformat() if c.updated_at else None),
+                        "parent_commitment_id": c.parent_commitment_id,
                         "title": c.assignment.title if c.assignment else (c.custom_title or "Task"),
                         "source_platform": c.assignment.source_platform if c.assignment else "local"
                     } for c in valid_commitments
@@ -241,6 +246,8 @@ class CommitmentSystem:
 
     def _send_initial_buddy_alert(self, commitment):
         """Initial notification to buddy that a contract has been locked."""
+        if not commitment.buddy_email:
+            return
         verification_url = f"http://localhost:5173/verify/{commitment.verification_token}"
         subject = f"Action Required: Accountability Partner for {commitment.buddy_name}"
         task_title = commitment.assignment.title if commitment.assignment else (commitment.custom_title or "a task")
@@ -249,6 +256,8 @@ class CommitmentSystem:
 
     def _send_verification_request_alert(self, commitment):
         """Notification to buddy that the user claims they are done and needs verification."""
+        if not commitment.buddy_email:
+            return
         verification_url = f"http://localhost:5173/verify/{commitment.verification_token}"
         subject = f"Verification Required: {commitment.student.name} claims they finished their task"
         task_title = commitment.assignment.title if commitment.assignment else (commitment.custom_title or "a task")
@@ -257,13 +266,15 @@ class CommitmentSystem:
 
     def _notify_partner(self, commitment, result):
         """Notifies partner of completion or failure."""
+        if not commitment.buddy_email:
+            return
         student_name = commitment.student.name
         if result == 'broken':
             subject = f" {student_name} missed their commitment"
             body = f"Penalty Action Required: {commitment.penalty_message}"
         else:
             subject = f" {student_name} kept their commitment!"
-            body = f"They finished {commitment.assignment.title}. Great job!"
+            body = f"They finished {commitment.assignment.title if commitment.assignment else (commitment.custom_title or 'the task')}. Great job!"
         self._send_email(commitment.buddy_email, subject, body)
 
     def generate_verification_link(self, commitment_id: int):

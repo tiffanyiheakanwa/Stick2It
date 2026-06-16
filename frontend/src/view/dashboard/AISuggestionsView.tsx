@@ -71,7 +71,7 @@ export function AISuggestionsView() {
     if (!selected || selected.size === 0) return;
 
     for (const title of Array.from(selected)) {
-      await addReminder(title, "Today", "High", true);
+      await addReminder(title, "Today", "High", true, taskId);
     }
     toast.success(`Added ${selected.size} subtasks to your reminders!`);
     
