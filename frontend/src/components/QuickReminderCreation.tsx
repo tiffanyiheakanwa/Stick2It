@@ -10,7 +10,7 @@ const quickActions = [
 ];
 
 interface QuickReminderCreationProps {
-  onAddReminder: (title: string, time: string) => Promise<void>;
+  onAddReminder: (title: string, time: string) => Promise<boolean>;
   value: string;
   onChange: (value: string) => void;
   onOpenModal: () => void;
